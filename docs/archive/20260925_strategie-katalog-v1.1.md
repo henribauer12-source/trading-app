@@ -1,12 +1,12 @@
 ---
 title: Trading-Analyse-App – Strategie-Katalog (Phase 0)
 date: 20260925
-status: v1.2 (v1.1 unabhängig geprüft; v1.2 ergänzt Overlay-Varianten für das Kernmodul Anlegen)
+status: v1.1, unabhängig geprüft, Befunde eingearbeitet
 owner: Henri
-basis: 20260925_trading-app-plan-v9.md, 20260925_anlage-spezifikation.md, 20260925_rechenkern-spezifikation-v1.4.md
+basis: 20260925_trading-app-plan-v8.md, 20260925_rechenkern-spezifikation-v1.4.md
 ---
 
-# Strategie-Katalog v1.2 (Phase 0)
+# Strategie-Katalog v1.1 (Phase 0)
 
 ## 0. Kurzfassung
 
@@ -183,7 +183,7 @@ abweichungen: ["Rebalancing-Regel ist eigene Festlegung, keine Quellenregel"]
 
 **Evidenz B für geringeren Drawdown, C für höhere Rendite.**
 - Faber (2007), Update 2013: 1973–2012 Buy-and-hold 9,92 % Rendite, 10,28 % Volatilität, Sharpe 0,44, maximaler Drawdown −46,00 %; mit Trendfilter 10,48 %, 6,99 %, 0,73, −9,54 %. Nach der Originalstichprobe (2006–2012): 3,94 % / 0,16 / −46,00 % gegenüber 6,01 % / 0,61 / −9,42 %. Robustheit über 3/6/9/12-Monats-Durchschnitt: Sharpe 0,60/0,72/0,77/0,73
-- Zakamulin (2014): Mit realistischen Kosten und Out-of-sample-Tests gemessen, ist die Leistung von Trendfiltern deutlich schwächer; frühere Backtests ohne beides haben sie "stark überzeichnet". Clare et al. (2016): Trendfolge über mehrere Anlageklassen risikoadjustiert besser als Buy-and-hold
+- Zakamulin (2014): Leistung von Trendfiltern mit realistischen Kosten und Out-of-sample-Tests "stark überzeichnet". Clare et al. (2016): Trendfolge über mehrere Anlageklassen risikoadjustiert besser als Buy-and-hold
 
 **Regel:**
 - Fünf Anlageklassen zu je 20 %: US-Aktien, Aktien Industrieländer ohne USA, Staatsanleihen, breite Rohstoffe, globale Immobilienaktien
@@ -299,20 +299,6 @@ benchmark: [risiko_gate_statische_mischung, L1, buy_and_hold_AKTIEN_WELT]
 gates: risiko_gate
 abweichungen: [welt_eur_statt_usa, cash_eur, c_echtzeit, deckel_1]
 ```
-
----
-
-### Overlay-Varianten für das Kernmodul Anlegen (v1.2)
-
-Seit Plan v9 ist das Modul Langfrist Teil des Kernmoduls "Anlegen" (`20260925_anlage-spezifikation.md`). L1 ist dort das Basisportfolio. Zusätzlich gibt es zwei **eigene, registrierte Varianten**, die nur das Gewicht des Welt-Aktien-Bausteins K1 zeitweise senken. **Namensgleichheit:** K1 meint hier den Baustein K1 aus Anlage-Spezifikation A4.1, nicht die Kontrollregel K1 aus Abschnitt 8; im Code heißen Bausteine `block_K1`, `block_K2`, Kontrollregeln `control_K1` bis `control_K11`. Sie zählen als eigene Versuche nach G9 und werden nicht mit L2 bzw. L4 gleichgesetzt, weil Universum und Gewichtung anders sind.
-
-| ID | Regel | Gate |
-|---|---|---|
-| OV-L2 | Monatsende: Total-Return-Kurs von K1 über dem Durchschnitt der letzten 10 Monatsschlusskurse → w(K1) wie geplant; sonst w(K1) × 0,5, Rest in den €STR-Geldmarkt-ETF; Ausführung zur nächsten Eröffnung | Risiko-Gate G7 Punkt 8 (Calmar-Ratio gegen statische Mischung gleicher durchschnittlicher Investitionsquote), **vor und nach deutscher Steuer** mit derselben Kennzahl (Anlage-Spezifikation A8.11) |
-| OV-L4 | w(K1) = geplantes Gewicht × max(0,5; min(1; c_t / σ̂²_t)), c_t und σ̂²_t wie L4 | wie OV-L2 |
-
-- Stichprobenende wie L2 bzw. L4; Varianten der Quelle (Faber: SMA 3/6/9/12) nur als Robustheitsbericht (G7 Punkt 7)
-- **Steuern:** Für diese Overlays und für Strategien, die als Satellit S-Taktik im Kernmodul gehalten werden (L3, S1), gilt zusätzlich das Nachsteuer-Gate; die übrigen Strategien des Katalogs zeigen Steuern weiterhin nur in der Anzeige (C8)
 
 ---
 
@@ -537,7 +523,7 @@ Getestet auf den Instrumenten und Zeiträumen der jeweiligen Quelle (G3), mit de
 | K7 | Kurzfristige Umkehr (Kostenbeispiel) | Wöchentlich: unterstes Dezil der Vorwochenrendite im Universum PE2 (USA) kaufen, eine Woche halten; Variante mit Haltepuffer (halten bis Austritt aus der unteren Hälfte, nach de Groot et al.) | Novy-Marx & Velikov (2016): netto −1,28 % pro Monat; de Groot et al. (2012): positiv nur mit institutionellen Kosten | D |
 | K8 | Post-Earnings-Drift (Zerfallsbeispiel) | SUE = (EPS_q − EPS_{q−4}) / Standardabweichung dieser Differenz über die 8 Vorquartale; EPS verwässert aus EDGAR; **Ereigniszeit = Annahmezeitpunkt der 10-Q- bzw. 10-K-Meldung** (die Zahlen aus der früheren 8-K-Pressemitteilung sind nicht maschinenlesbar in EDGAR); **nur Q1–Q3** (Q4-EPS ist aus Jahres- minus 9-Monats-Wert nicht sauber ableitbar); Kauf, wenn SUE über dem 90. Perzentil der SUE-Verteilung **des Vorquartals** liegt; 60 Handelstage halten | Bernard & Thomas (1989); Martineau (2022): bei großen Aktien seit 2006 verschwunden; Novy-Marx & Velikov: netto 0,26 % (t = 1,60). Die späte Ereigniszeit schwächt die Regel gegenüber der Quelle zusätzlich (erklärt) | D |
 | K9 | Opening Range Breakout | Nach Zarattini & Aziz (2023) auf QQQ (Quelleninstrument): Richtung der ersten 5-Minuten-Bar ab 09:30 ET, Einstieg zur Eröffnung der zweiten Bar, keine Position bei Doji, Stop am Extrem der ersten Bar, Ziel 10R, sonst Ausstieg zum Schluss; 1 % Risiko je Trade; **ohne Hebel** (Quelle bis 4-fach) | Nicht begutachtet; Autoren mit kommerziellem Interesse; Basisversion über alle Aktien Sharpe 0,48 (Zarattini, Barbon & Aziz, 2024) | D |
-| K10 | "Noise Area" | Nach Zarattini, Aziz & Barbon (2024) auf SPY: σ je Uhrzeit = Mittel der letzten 14 Tage von \|Kurs(Uhrzeit) / Eröffnung − 1\|; oberes Band = max(Eröffnung, Vortagesschluss) × (1 + σ), unteres Band = min(Eröffnung, Vortagesschluss) × (1 − σ); Entscheidungen nur zur vollen und halben Stunde; long über dem oberen, short unter dem unteren Band (in der App long/flat); Stop = max(oberes Band, VWAP); Schluss um 16:00; **Basisgröße 100 % des Kapitals ohne dynamischen Hebel** | Nicht begutachtet; Autoren mit kommerziellem Interesse | D |
+| K10 | "Noise Area" | Nach Zarattini, Aziz & Barbon (2024) auf SPY: σ je Uhrzeit = Mittel der letzten 14 Tage von \|Kurs(Uhrzeit) / Eröffnung − 1\|; oberes Band = max(Eröffnung, Vortagesschluss) × (1 + σ), unteres Band = min(Eröffnung, Vortagesschluss) × (1 − σ); Entscheidungen nur zur vollen und halben Stunde; long über dem oberen, short über dem unteren Band (in der App long/flat); Stop = max(oberes Band, VWAP); Schluss um 16:00; **Basisgröße 100 % des Kapitals ohne dynamischen Hebel** | Nicht begutachtet; Autoren mit kommerziellem Interesse | D |
 | K11 | Fibonacci und Elliott-Wellen | Nicht als eindeutige Regel definierbar; **nicht getestet**, nur im Lernmodul erklärt | Keine begutachtete Evidenz für Profitabilität gefunden | D |
 
 **Bewusst nicht aufgenommen:** Kopf-Schulter- und andere Chartformationen. Die Erkennung braucht aufwendige Glättungsverfahren (Lo, Mamaysky & Wang, 2000, testen zudem keine Profitabilität); bei Aktien fand sich kein eigenständiger Gewinn (Savin, Weller & Zvingelis, 2007).
@@ -551,7 +537,7 @@ Exakte Reproduktion ist mit kostenlosen Daten nicht möglich (andere Instrumente
 | ID | Reproduktionsziel (qualitativ) | Look-ahead-Fallen |
 |---|---|---|
 | L1 | Keine (Benchmark); Rebalancing-Umschlag und Kosten plausibel | Rebalancing mit Kursen des Bewertungstags, Ausführung erst am Folgetag |
-| L2 | Deutlich geringere Volatilität und maximaler Drawdown als Buy-and-hold derselben Klassen bei ähnlicher oder etwas geringerer Rendite | Monatsschlusskurse müssen feststehen; Total-Return-Anpassung nur mit bis dahin bekannten Ausschüttungen (Rechenkern-Spezifikation K4) |
+| L2 | Deutlich geringere Volatilität und maximaler Drawdown als Buy-and-hold derselben Klassen bei ähnlicher oder etwas geringerer Rendite | Monatsschlusskurse müssen feststehen; Total-Return-Anpassung nur mit bis dahin bekannten Ausschüttungen (K4) |
 | L3 | Positiver, aber gegenüber der Quelle deutlich kleinerer Vorteil; Ergebnis abhängig vom Anteil der Aktienklassen | Klassen ohne 13 Monate Historie dürfen nicht über rückwirkend verlängerte Proxies in die Rangfolge kommen, wenn der Proxy zum Zeitpunkt nicht bekannt war |
 | L4 | Geringerer Drawdown als der ungesteuerte Markt; Sharpe-Vorteil kleiner als in der Quelle (Echtzeit-c) | c_t nur bis Monatsende t; Varianz des Monats t bestimmt das Gewicht ab Eröffnung t+1 |
 | S1 | Positive, aber kleine aktive Rendite gegenüber "immer long"; Hauptnutzen in Bärenmärkten (2008, 2022) | σ̂ nur aus Tagesdaten bis t; Zinssatz mit Veröffentlichungsverzug (G5) |
@@ -590,8 +576,6 @@ Exakte Reproduktion ist mit kostenlosen Daten nicht möglich (andere Instrumente
 ---
 
 ## Änderungsprotokoll
-
-**v1.2 (20260925):** Overlay-Varianten OV-L2 und OV-L4 für das Kernmodul Anlegen ergänzt; Nachsteuer-Gate für Overlays und den Satelliten S-Taktik. Beim Übersetzen gefunden und korrigiert: K10 short **unter** dem unteren Band; Zakamulin-Befund richtig herum formuliert; Verweis K4 bei L2 auf die Rechenkern-Spezifikation präzisiert; Namensgleichheit Baustein K1 / Kontrollregel K1 aufgelöst.
 
 **v1.1 (20260925)** nach unabhängiger Prüfung (4 kritische, 9 schwere, viele leichte Befunde), alle eingearbeitet:
 - Kritisch: Cash-gedeckter Index-Put (O1) verletzte die 2 %-Verlustgrenze → ersetzt durch Put-Credit-Spread; im Simulator wird die volle Verpflichtung als Kapital gebunden

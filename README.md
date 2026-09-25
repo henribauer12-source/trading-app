@@ -4,7 +4,9 @@
 
 # Trading-Analyse-App
 
-A private, local analysis tool. Evidence-based signals (long-term, swing, intraday), market
+A private, local analysis tool. **Core: an investment adviser for long-term and mid-to-long-term
+investing** (goals, equity share, concrete ETFs, savings plan, German tax engine, projection,
+monthly recommendation). Alongside it: evidence-based trading signals (swing, intraday), market
 intelligence, an options module, a stock-ranking prediction engine, a practice simulator and a
 learning path. Python + a local Streamlit dashboard. Broker connection (Interactive Brokers) is
 optional and disabled by default.
@@ -21,16 +23,17 @@ repository currently holds the specification, which is the deliverable of those 
 | Phase | What | State |
 |---|---|---|
 | 0 | Research, tooling and evidence survey | done |
-| 0b | Quality standards, calculation-core spec v1.4, strategy catalogue, plan v8 | done |
+| 0b | Quality standards, calculation-core spec v1.4, investment-core spec v1.2, strategy catalogue v1.2, plan v9 | done |
 | 1 | Foundation: bitemporal data layer, `PointInTimeView`, instrument model, DuckDB, leakage tests, start of intraday recording | next |
 | 2 | Backtest engine: cost model, execution rules, performance statistics, walk-forward | planned |
 | 2b | UI concept and mockups | planned |
-| 3–5b | Long-term module, swing module, intraday module | planned |
+| 3 | **Core module "Anlegen"** (investment adviser) — first usable version | planned |
+| 3b–5b | Simulator, swing module, intraday module | planned |
 | 6–8b | Market intelligence, options module, prediction engine | planned |
 | 9 | Paper trading, ≥ 3 months, no real money | planned |
 | 10 | Execution adapter (optional, off by default) | planned |
 
-Detailed gates per phase: `docs/20260925_trading-app-plan-v8.md` §6.
+Detailed gates per phase: `docs/20260925_trading-app-plan-v9.md` §6.
 
 ---
 
@@ -173,7 +176,7 @@ git init --separate-git-dir=~/claude-local/trading-app/git
 
 ---
 
-## Tech stack (fixed in plan v8 §5, not yet installed)
+## Tech stack (fixed in plan v9 §5, not yet installed)
 
 | Layer | Choice |
 |---|---|

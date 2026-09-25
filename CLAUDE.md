@@ -1,7 +1,9 @@
 # Trading-Analyse-App
 
-A private, local analysis tool for Henri: evidence-based signals (long-term, swing, intraday),
-market intelligence, an options module, a stock-ranking prediction engine, a practice simulator
+A private, local analysis tool for Henri. **Core module: "Anlegen"** — an investment adviser for
+long-term and mid-to-long-term investing (profile and goals, equity share per goal, concrete ETF
+selection, savings plan, German tax engine, projection, monthly recommendation). Further modules,
+same depth as before: evidence-based trading signals (swing, intraday), market intelligence, an options module, a stock-ranking prediction engine, a practice simulator
 and a learning path. Python + local Streamlit dashboard. Broker connection (Interactive Brokers)
 is optional. Budget for data: 0 €. Nothing here is investment advice, and the app is never shared.
 
@@ -20,17 +22,26 @@ All in `docs/`. When they disagree, the higher one wins; raise the conflict inst
 
 1. `20260924_trading-app-qualitaetsstandards.md` — security, calculation-core rigour,
    look-ahead-bias rules, intraday data limits. Binding for every phase.
-2. `20260925_rechenkern-spezifikation-v1.4.md` — every formula, convention, cost/execution rule,
-   the prediction engine, and the test catalogue (T1–T40) with reference values and tolerances.
-3. `20260925_strategie-katalog.md` — every strategy as an exact rule plus its YAML definition,
-   evidence grade, gates (G1–G9) and benchmarks.
-4. `20260925_trading-app-plan-v8.md` — modules, architecture, UI information architecture,
-   roadmap with phase gates.
-5. `20260924_trading-app-research.md` — background evidence (tools, building blocks, media/expert
+2. `20260925_rechenkern-spezifikation-v1.4.md` — every trading/valuation formula, convention,
+   cost/execution rule, the prediction engine (PE0–PE13), and the test catalogue (T1–T40) with
+   reference values and tolerances.
+3. `20260925_anlage-spezifikation.md` (v1.2) — **the core module "Anlegen"**: profile, equity
+   share per goal (A3), building blocks, ETF selection (A5), savings plan and rebalancing (A6),
+   overlays (A7), German tax engine (A8, `Decimal` only), projection (A9), monthly
+   recommendation, IPS, guardrails; tests TA1–TA22. Wins over 4–6 for anything in A1–A15.
+4. `20260925_strategie-katalog.md` (v1.2) — every strategy as an exact rule plus its YAML
+   definition, evidence grade, gates (G1–G9), benchmarks, overlay variants OV-L2/OV-L4.
+5. `20260925_trading-app-plan-v9.md` — modules, architecture, UI information architecture,
+   roadmap with phase gates. The first usable version (phases 1–3) is the investment adviser.
+6. `20260924_trading-app-research.md` — background evidence (tools, building blocks, media/expert
    signals, options). Context, not rules.
 
+Superseded versions live in `docs/archive/` — never implement from them.
+
 The documents are in German; code, identifiers and comments are English; everything the user
-sees in the app is German.
+sees in the app is German. English reading copies (`*_en.md`) exist for the investment spec, plan v9
+and the catalogue. **The German original is binding.** Any spec change updates both files in the
+same edit; if they disagree, follow the German and flag the difference.
 
 Specs and tickets: `~/claude/.scratch/trading-app/spec.md` and `issues/NN-*.md` (one per
 phase, `Status:` line per `~/claude/docs/agents/triage-labels.md`).
@@ -55,6 +66,8 @@ phase, `Status:` line per `~/claude/docs/agents/triage-labels.md`).
   paper account first; secrets in `.env` outside the repo or the macOS keychain.
 - **Honest numbers.** No probability shown without passed calibration; "no signal" is a normal,
   calm state, not an error.
+- **Tax and money arithmetic in `Decimal`**, rounding exactly as the anlage spec A8 prescribes
+  (bank withholding vs. assessment differ by a cent — TA8 documents both). No floats in A8.
 
 ## Storage (iCloud + local cache)
 
