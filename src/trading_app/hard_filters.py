@@ -32,9 +32,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Context, Decimal, Inexact
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from trading_app.instruments import FieldValue, InstrumentView, VerificationStatus
+
+if TYPE_CHECKING:  # index_identity imports BuildingBlock from here, so the
+    # runtime import lives inside _check_index to keep the cycle unbroken.
+    from trading_app.index_identity import IndexRegistry
 
 __all__ = [
     "BuildingBlock",
@@ -72,12 +76,10 @@ _LARGE_BLOCKS = frozenset({BuildingBlock.K1, BuildingBlock.K2_MONEY_MARKET})
 # A5.2 no. 4.
 MIN_CALENDAR_YEARS = 3
 
-# A5.2 no. 2 per A5.5, only where A5.5 names concrete indices (v1.3). Spelling
-# exactly as in A5.5 — this is how index_name must appear in the source file.
-_INDICES_A5_5 = {
-    BuildingBlock.K1: frozenset({"MSCI ACWI", "MSCI ACWI IMI", "FTSE All-World"}),
-    BuildingBlock.K2_MONEY_MARKET: frozenset({"€STR"}),
-}
+# A5.2 no. 2 per A5.5 (v1.7): the index name is no longer compared character
+# for character — it is normalised and matched against the canonical name or
+# a registered alias (index_identity). The registry is passed into
+# check_hard_filters so aliases read from documents stay data, not code.
 
 _EQUITY_BLOCKS = frozenset({BuildingBlock.K1, BuildingBlock.S_FACTOR})  # no. 5
 _FOREIGN_CURRENCY_BONDS = frozenset({BuildingBlock.K2_GLOBAL_BONDS})  # no. 6
@@ -135,7 +137,12 @@ def full_calendar_years(inception_date: dt.date, cut_off: dt.date) -> int:
     return max(0, cut_off.year - first)
 
 
-def check_hard_filters(view: InstrumentView, isin: str, block: BuildingBlock) -> FilterResult:
+def check_hard_filters(
+    view: InstrumentView,
+    isin: str,
+    block: BuildingBlock,
+    registry: IndexRegistry | None = None,
+) -> FilterResult:
     """Checks A5.2 nos. 1–6 for an instrument as a candidate for a building block.
 
     Args:
@@ -164,25 +171,8 @@ def check_hard_filters(view: InstrumentView, isin: str, block: BuildingBlock) ->
     )
     checks.append(_check(view, isin, 1, "KID in German", "kid_language_de", _yes))
 
-    # No. 2
-    indices = _INDICES_A5_5.get(block)
-    if indices is None:
-        checks.append(
-            Check(
-                2,
-                "Index",
-                Verdict.OPEN,
-                f"A5.5 names only an index family for {block}; check by hand "
-                "until A5.5 names concrete indices",
-            )
-        )
-    else:
-        checks.append(
-            _check(
-                view, isin, 2, "Index", "index_name", indices.__contains__,
-                rule=f"one of {sorted(indices)}",
-            )
-        )
+    # No. 2 (v1.7): normalised match against A5.5 plus registered aliases.
+    checks.append(_check_index(view, isin, block, registry))
 
     # No. 3
     checks.append(_check_fund_size(view, isin, block))
@@ -249,6 +239,49 @@ def _check(
         verdict,
         f"{field} = {value.value}, required {rule} ({value.source_type}, as of {value.as_of})",
     )
+
+
+def _check_index(
+    view: InstrumentView,
+    isin: str,
+    block: BuildingBlock,
+    registry: IndexRegistry | None,
+) -> Check:
+    """A5.2 no. 2 (v1.7): normalised name against A5.5 plus document aliases.
+
+    Three outcomes, not two. An unknown name is *open*, not violated: nobody
+    has yet read the index out of a KID, and that is a gap in the data, not
+    evidence against the product. Only a name belonging to another building
+    block is a rejection. A gross series is also a rejection, because A5.5
+    requires the net variant and the two are different series.
+    """
+    from trading_app.index_identity import IndexRegistry, MatchVerdict, ReturnVariant
+
+    reg = registry if registry is not None else IndexRegistry()
+    value, open_check = _verified_value(view, isin, 2, "Index", "index_name")
+    if open_check is not None:
+        return open_check
+
+    result = reg.match(block, str(value.value))
+    provenance = f"({value.source_type}, as of {value.as_of})"
+
+    if result.verdict is MatchVerdict.MISMATCH:
+        return Check(2, "Index", Verdict.VIOLATED, f"{result.reason} {provenance}")
+    if result.verdict is MatchVerdict.UNKNOWN:
+        return Check(2, "Index", Verdict.OPEN, f"{result.reason} {provenance}")
+
+    # A5.5 requires the net variant where a variant is specified at all. An
+    # absent variant is not assumed to be net — that stays open.
+    if result.parsed.variant is ReturnVariant.GROSS or result.parsed.variant is ReturnVariant.PRICE:
+        return Check(
+            2,
+            "Index",
+            Verdict.VIOLATED,
+            f"{result.reason}, but the {result.parsed.variant} variant is used "
+            f"where A5.5 requires net {provenance}",
+        )
+
+    return Check(2, "Index", Verdict.FULFILLED, f"{result.reason} {provenance}")
 
 
 def _check_fund_size(view: InstrumentView, isin: str, block: BuildingBlock) -> Check:
