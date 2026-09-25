@@ -1,33 +1,33 @@
-"""Bitemporale Datenhaltung und Point-in-time-Zugriff.
+"""Bitemporal storage and point-in-time access.
 
-Der Kern von Phase 1. Zwei Regeln bestimmen den gesamten Entwurf:
+The core of phase 1. Two rules govern the whole design:
 
-1. **Append-only.** Eine einmal geschriebene Zeile wird nie geändert und nie
-   gelöscht. Korrekturen kommen als neue Zeile mit späterem `available_at`
-   herein. Damit bleibt rekonstruierbar, was die App zu einem beliebigen
-   Zeitpunkt der Vergangenheit *geglaubt* hat — nicht nur, was heute stimmt.
+1. **Append-only.** A row once written is never changed and never deleted.
+   Corrections come in as a new row with a later `available_at`. That keeps
+   it reconstructable what the app *believed* at any point in the past — not
+   just what is true today.
 
-2. **`PointInTimeView` ist die einzige Schnittstelle für Strategiecode.**
-   Sie liefert ausschließlich Zeilen mit `available_at <= as_of`. Ohne diese
-   Sperre wandert früher oder später Zukunftswissen in ein Signal, und der
-   Backtest wird wertlos, ohne dass irgendetwas abstürzt.
+2. **`PointInTimeView` is the only interface for strategy code.**
+   It returns exclusively rows with `available_at <= as_of`. Without this
+   barrier, knowledge of the future sooner or later creeps into a signal, and
+   the backtest becomes worthless without anything crashing.
 
-Drei Zeitstempel pro Zeile (Qualitätsstandards Abschnitt 3.2):
+Three timestamps per row (quality standards section 3.2):
 
-| Feld           | Bedeutung                                              |
+| Field          | Meaning                                                |
 |----------------|--------------------------------------------------------|
-| `event_time`   | wann es passierte — hier: Ende der Bar                 |
-| `available_at` | ab wann es öffentlich bekannt war                      |
-| `ingested_at`  | wann diese App es gespeichert hat                      |
+| `event_time`   | when it happened — here: end of the bar                |
+| `available_at` | from when it was publicly known                        |
+| `ingested_at`  | when this app stored it                                |
 
-`event_time` und `available_at` fallen auseinander, sobald Daten verzögert
-veröffentlicht oder nachträglich korrigiert werden. Genau diese Lücke ist der
-Grund für bitemporale Haltung.
+`event_time` and `available_at` diverge as soon as data are published late or
+corrected afterwards. Exactly this gap is the reason for bitemporal storage.
 
-Preise werden doppelt geführt — `close` wie gehandelt, `adjusted_close` um
-Splits und Dividenden bereinigt. Warum das kein Luxus ist, steht in
-`docs/20260925_rueckwirkende-anpassung.md`: Über zwölf Monate AAPL trennt die
-beiden Spalten fast ein halber Prozentpunkt Rendite, immer in dieselbe Richtung.
+Prices are kept twice — `close` as traded, `adjusted_close` adjusted for
+splits and dividends. Why that is no luxury is explained in
+`docs/20260925_rueckwirkende-anpassung.md`: over twelve months of AAPL the two
+columns are almost half a percentage point of return apart, always in the
+same direction.
 """
 
 from __future__ import annotations
@@ -45,49 +45,50 @@ __all__ = ["Bar", "BitemporalStore", "PointInTimeView", "BarValidationError"]
 
 
 class BarValidationError(ValueError):
-    """Eine Bar hat die Eingangsprüfung nicht bestanden.
+    """A bar failed input validation.
 
-    Bewusst eine eigene Klasse: Ein Loader soll gezielt auf fehlerhafte
-    Marktdaten reagieren können, ohne jeden anderen ValueError mitzufangen.
+    Deliberately a class of its own: a loader should be able to react
+    specifically to faulty market data without catching every other
+    ValueError too.
     """
 
 
-def _require_aware(name: str, wert: dt.datetime) -> dt.datetime:
-    """Zeitzonenlose Zeitstempel zurückweisen und alles auf UTC normieren.
+def _require_aware(name: str, value: dt.datetime) -> dt.datetime:
+    """Reject timezone-naive timestamps and normalise everything to UTC.
 
-    Ein naiver Zeitstempel ist die stillste Fehlerquelle der ganzen Schicht:
-    Der Vergleich `available_at <= as_of` läuft dann je nach Sommerzeit bis zu
-    zwei Stunden falsch, wirft aber keine Meldung. Zwei Stunden reichen für
-    Look-ahead über einen Handelstag hinweg.
+    A naive timestamp is the quietest source of error in the whole layer: the
+    comparison `available_at <= as_of` then runs up to two hours wrong,
+    depending on daylight saving time, but raises no message. Two hours are
+    enough for look-ahead across a trading day.
     """
-    if not isinstance(wert, dt.datetime):
-        raise BarValidationError(f"{name} muss ein datetime sein, war {type(wert).__name__}")
-    if wert.tzinfo is None or wert.tzinfo.utcoffset(wert) is None:
+    if not isinstance(value, dt.datetime):
+        raise BarValidationError(f"{name} must be a datetime, was {type(value).__name__}")
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
         raise BarValidationError(
-            f"{name} ist zeitzonenlos. Zeitzonenlose Zeitstempel sind verboten — "
-            "sie vergleichen sich je nach Sommerzeit bis zu zwei Stunden falsch. "
-            "Erwartet wird ein tz-bewusstes datetime, z. B. mit tz=datetime.timezone.utc."
+            f"{name} is timezone-naive. Timezone-naive timestamps are forbidden — "
+            "depending on daylight saving time they compare up to two hours wrong. "
+            "Expected a tz-aware datetime, e.g. with tz=datetime.timezone.utc."
         )
-    return wert.astimezone(dt.timezone.utc)
+    return value.astimezone(dt.timezone.utc)
 
 
 @dataclass(frozen=True, slots=True)
 class Bar:
-    """Eine OHLCV-Bar mit ihren beiden Zeitachsen.
+    """An OHLCV bar with its two time axes.
 
-    Unveränderlich (`frozen=True`), weil eine bereits geprüfte Bar auf dem Weg
-    in die Datenbank nicht mehr verändert werden können soll.
+    Immutable (`frozen=True`), because a bar that has already been validated
+    should no longer be changeable on its way into the database.
 
-    Attribute:
-        symbol: Instrumentenkürzel, z. B. ``AAPL.US``.
-        bar_size: Bar-Länge als Text, z. B. ``1d``, ``1h``, ``1m``.
-        event_time: Ende der Bar, tz-bewusst.
-        available_at: Ab wann die Bar öffentlich bekannt war, tz-bewusst.
-        open, high, low, close: Preise **wie gehandelt**, unbereinigt.
-        adjusted_close: Um Splits/Dividenden bereinigter Schlusskurs, oder None.
-        volume: Gehandelte Stückzahl.
-        source: Herkunft, z. B. ``eodhd``. Bei widersprüchlichen Quellen die
-            einzige Chance, hinterher zu erkennen, wem zu glauben ist.
+    Attributes:
+        symbol: Instrument ticker, e.g. ``AAPL.US``.
+        bar_size: Bar length as text, e.g. ``1d``, ``1h``, ``1m``.
+        event_time: End of the bar, tz-aware.
+        available_at: From when the bar was publicly known, tz-aware.
+        open, high, low, close: Prices **as traded**, unadjusted.
+        adjusted_close: Close adjusted for splits/dividends, or None.
+        volume: Traded quantity.
+        source: Provenance, e.g. ``eodhd``. With contradicting sources the
+            only chance to tell afterwards whom to believe.
     """
 
     symbol: str
@@ -104,68 +105,68 @@ class Bar:
 
     def __post_init__(self) -> None:
         if not self.symbol or not self.symbol.strip():
-            raise BarValidationError("symbol darf nicht leer sein")
+            raise BarValidationError("symbol must not be empty")
         if not self.bar_size or not self.bar_size.strip():
-            raise BarValidationError("bar_size darf nicht leer sein")
+            raise BarValidationError("bar_size must not be empty")
         if not self.source or not self.source.strip():
-            raise BarValidationError("source darf nicht leer sein — Herkunft ist Pflicht")
+            raise BarValidationError("source must not be empty — provenance is mandatory")
 
         event_time = _require_aware("event_time", self.event_time)
         available_at = _require_aware("available_at", self.available_at)
 
-        # Konvention K2 der Rechenkern-Spezifikation: Eine Bar ist frühestens
-        # ab ihrem Endzeitpunkt verfügbar. Wäre available_at < event_time,
-        # könnte eine Strategie den Schlusskurs kennen, bevor er feststeht.
+        # Convention K2 of the calculation-core spec: a bar is available at
+        # the earliest from its end time. Were available_at < event_time, a
+        # strategy could know the close before it is settled.
         if available_at < event_time:
             raise BarValidationError(
-                f"available_at ({available_at.isoformat()}) liegt vor event_time "
-                f"({event_time.isoformat()}). Eine Bar kann nicht bekannt sein, "
-                "bevor sie zu Ende ist (Konvention K2)."
+                f"available_at ({available_at.isoformat()}) is before event_time "
+                f"({event_time.isoformat()}). A bar cannot be known "
+                "before it has ended (convention K2)."
             )
 
         object.__setattr__(self, "event_time", event_time)
         object.__setattr__(self, "available_at", available_at)
 
-        preise = {
+        prices = {
             "open": self.open,
             "high": self.high,
             "low": self.low,
             "close": self.close,
         }
-        for name, wert in preise.items():
-            if wert is None:
-                raise BarValidationError(f"{name} fehlt")
-            zahl = float(wert)
-            if zahl != zahl:  # NaN
-                raise BarValidationError(f"{name} ist NaN")
-            if zahl <= 0:
-                raise BarValidationError(f"{name} muss positiv sein, war {zahl}")
-            object.__setattr__(self, name, zahl)
+        for name, value in prices.items():
+            if value is None:
+                raise BarValidationError(f"{name} is missing")
+            number = float(value)
+            if number != number:  # NaN
+                raise BarValidationError(f"{name} is NaN")
+            if number <= 0:
+                raise BarValidationError(f"{name} must be positive, was {number}")
+            object.__setattr__(self, name, number)
 
         if self.high < self.low:
-            raise BarValidationError(f"high ({self.high}) liegt unter low ({self.low})")
+            raise BarValidationError(f"high ({self.high}) is below low ({self.low})")
         if not (self.low <= self.open <= self.high):
             raise BarValidationError(
-                f"open ({self.open}) liegt außerhalb [low={self.low}, high={self.high}]"
+                f"open ({self.open}) is outside [low={self.low}, high={self.high}]"
             )
         if not (self.low <= self.close <= self.high):
             raise BarValidationError(
-                f"close ({self.close}) liegt außerhalb [low={self.low}, high={self.high}]"
+                f"close ({self.close}) is outside [low={self.low}, high={self.high}]"
             )
 
         volume = float(self.volume)
         if volume != volume:
-            raise BarValidationError("volume ist NaN")
+            raise BarValidationError("volume is NaN")
         if volume < 0:
-            raise BarValidationError(f"volume darf nicht negativ sein, war {volume}")
+            raise BarValidationError(f"volume must not be negative, was {volume}")
         object.__setattr__(self, "volume", volume)
 
         if self.adjusted_close is not None:
             adj = float(self.adjusted_close)
             if adj != adj:
-                raise BarValidationError("adjusted_close ist NaN")
+                raise BarValidationError("adjusted_close is NaN")
             if adj <= 0:
-                raise BarValidationError(f"adjusted_close muss positiv sein, war {adj}")
+                raise BarValidationError(f"adjusted_close must be positive, was {adj}")
             object.__setattr__(self, "adjusted_close", adj)
 
 
@@ -173,8 +174,8 @@ _SCHEMA = """
 CREATE SEQUENCE IF NOT EXISTS bars_row_id START 1;
 
 CREATE TABLE IF NOT EXISTS bars (
-    -- Monotone Schreibreihenfolge. Einziger verlässlicher Tiebreaker, wenn
-    -- zwei Korrekturen denselben available_at tragen.
+    -- Monotonic write order. The only reliable tiebreaker when two
+    -- corrections carry the same available_at.
     row_id        BIGINT      PRIMARY KEY DEFAULT nextval('bars_row_id'),
     symbol        VARCHAR     NOT NULL,
     bar_size      VARCHAR     NOT NULL,
@@ -188,9 +189,9 @@ CREATE TABLE IF NOT EXISTS bars (
     adjusted_close DOUBLE,
     volume        DOUBLE      NOT NULL,
     source        VARCHAR     NOT NULL,
-    -- Die Datenbank wiederholt die Prüfungen aus Bar.__post_init__.
-    -- Nicht doppelt gemoppelt: Die Klasse schützt vor Programmierfehlern,
-    -- die Tabelle schützt vor jedem, der je per SQL hineinschreibt.
+    -- The database repeats the checks from Bar.__post_init__.
+    -- Not redundant: the class protects against programming errors,
+    -- the table protects against anyone who ever writes into it via SQL.
     CHECK (available_at >= event_time),
     CHECK (high >= low),
     CHECK (open BETWEEN low AND high),
@@ -198,15 +199,15 @@ CREATE TABLE IF NOT EXISTS bars (
     CHECK (volume >= 0)
 );
 
--- Der Filter available_at <= as_of läuft bei jedem einzelnen Zugriff.
+-- The filter available_at <= as_of runs on every single access.
 CREATE INDEX IF NOT EXISTS bars_pit_idx
     ON bars (symbol, bar_size, available_at, event_time);
 """
 
-# Spalten, die eine PointInTimeView nach außen gibt. row_id und ingested_at
-# fehlen bewusst: Beide beschreiben die Speicherung, nicht den Markt, und
-# ingested_at ist der direkteste Weg zu Zukunftswissen.
-_VIEW_SPALTEN = (
+# Columns a PointInTimeView returns. row_id and ingested_at are deliberately
+# missing: both describe the storage, not the market, and ingested_at is the
+# most direct route to knowledge of the future.
+_VIEW_COLUMNS = (
     "symbol",
     "bar_size",
     "event_time",
@@ -222,15 +223,15 @@ _VIEW_SPALTEN = (
 
 
 class PointInTimeView:
-    """Sicht auf die Daten, wie sie zum Zeitpunkt ``as_of`` bekannt waren.
+    """View of the data as they were known at time ``as_of``.
 
-    Das einzige Objekt, das Strategiecode zu sehen bekommt. Es gibt keinen Weg
-    von hier zur rohen Tabelle — auch nicht versehentlich.
+    The only object strategy code gets to see. There is no way from here to
+    the raw table — not even by accident.
 
-    Gibt es zu einer Bar mehrere Fassungen (Erstmeldung plus Korrekturen),
-    liefert die Sicht die **zuletzt bekannte** Fassung mit
-    ``available_at <= as_of``. Eine Korrektur, die erst nach ``as_of``
-    veröffentlicht wurde, bleibt unsichtbar. Genau so war die Lage damals.
+    If a bar has several versions (first report plus corrections), the view
+    returns the **latest known** version with ``available_at <= as_of``. A
+    correction published only after ``as_of`` stays invisible. That is
+    exactly how things stood back then.
     """
 
     def __init__(self, conn: duckdb.DuckDBPyConnection, as_of: dt.datetime) -> None:
@@ -239,7 +240,7 @@ class PointInTimeView:
 
     @property
     def as_of(self) -> dt.datetime:
-        """Der Stichtag dieser Sicht (UTC)."""
+        """The cut-off date of this view (UTC)."""
         return self._as_of
 
     def __repr__(self) -> str:
@@ -252,93 +253,92 @@ class PointInTimeView:
         start: dt.datetime | None = None,
         end: dt.datetime | None = None,
     ) -> pd.DataFrame:
-        """Bars eines Instruments, wie sie am Stichtag bekannt waren.
+        """Bars of an instrument as they were known at the cut-off date.
 
         Args:
-            symbol: Instrumentenkürzel.
-            bar_size: Bar-Länge, Vorgabe ``1d``.
-            start: Frühestes ``event_time`` (einschließlich), optional.
-            end: Spätestes ``event_time`` (einschließlich), optional.
+            symbol: Instrument ticker.
+            bar_size: Bar length, default ``1d``.
+            start: Earliest ``event_time`` (inclusive), optional.
+            end: Latest ``event_time`` (inclusive), optional.
 
         Returns:
-            DataFrame nach ``event_time`` aufsteigend sortiert. Leer, wenn zum
-            Stichtag nichts bekannt war — das ist ein gültiges Ergebnis, kein
-            Fehler: Vor dem Börsengang gab es eben keine Kurse.
+            DataFrame sorted by ``event_time`` ascending. Empty if nothing was
+            known at the cut-off date — that is a valid result, not an error:
+            before the IPO there simply were no prices.
         """
-        bedingungen = ["symbol = ?", "bar_size = ?", "available_at <= ?"]
-        parameter: list[Any] = [symbol, bar_size, self._as_of]
+        conditions = ["symbol = ?", "bar_size = ?", "available_at <= ?"]
+        params: list[Any] = [symbol, bar_size, self._as_of]
 
         if start is not None:
-            bedingungen.append("event_time >= ?")
-            parameter.append(_require_aware("start", start))
+            conditions.append("event_time >= ?")
+            params.append(_require_aware("start", start))
         if end is not None:
-            bedingungen.append("event_time <= ?")
-            parameter.append(_require_aware("end", end))
+            conditions.append("event_time <= ?")
+            params.append(_require_aware("end", end))
 
-        spalten = ", ".join(_VIEW_SPALTEN)
+        columns = ", ".join(_VIEW_COLUMNS)
         sql = f"""
-            SELECT {spalten}
+            SELECT {columns}
             FROM (
                 SELECT *, ROW_NUMBER() OVER (
                     PARTITION BY symbol, bar_size, event_time
                     ORDER BY available_at DESC, row_id DESC
-                ) AS _rang
+                ) AS _rank
                 FROM bars
-                WHERE {' AND '.join(bedingungen)}
+                WHERE {' AND '.join(conditions)}
             )
-            WHERE _rang = 1
+            WHERE _rank = 1
             ORDER BY event_time
         """
-        return self._conn.execute(sql, parameter).df()
+        return self._conn.execute(sql, params).df()
 
-    def letzte_bar(self, symbol: str, bar_size: str = "1d") -> pd.Series | None:
-        """Die jüngste am Stichtag bekannte Bar, oder None."""
+    def last_bar(self, symbol: str, bar_size: str = "1d") -> pd.Series | None:
+        """The latest bar known at the cut-off date, or None."""
         frame = self.bars(symbol, bar_size)
         if frame.empty:
             return None
         return frame.iloc[-1]
 
-    def symbole(self, bar_size: str | None = None) -> list[str]:
-        """Instrumente, zu denen am Stichtag Daten vorlagen."""
+    def symbols(self, bar_size: str | None = None) -> list[str]:
+        """Instruments for which data were available at the cut-off date."""
         sql = "SELECT DISTINCT symbol FROM bars WHERE available_at <= ?"
-        parameter: list[Any] = [self._as_of]
+        params: list[Any] = [self._as_of]
         if bar_size is not None:
             sql += " AND bar_size = ?"
-            parameter.append(bar_size)
+            params.append(bar_size)
         sql += " ORDER BY symbol"
-        return [zeile[0] for zeile in self._conn.execute(sql, parameter).fetchall()]
+        return [row[0] for row in self._conn.execute(sql, params).fetchall()]
 
 
 class BitemporalStore:
-    """Append-only-Speicher für Marktdaten auf DuckDB.
+    """Append-only store for market data on DuckDB.
 
-    Die Klasse bietet **kein** Update und **kein** Delete. Das ist keine
-    Bequemlichkeitslücke, sondern der Zweck: Wer eine Bar überschreiben kann,
-    kann die Vergangenheit umschreiben, und dann beweist kein Backtest mehr
-    irgendetwas.
+    The class offers **no** update and **no** delete. That is not a gap in
+    convenience but the point: whoever can overwrite a bar can rewrite the
+    past, and then no backtest proves anything any more.
 
-    Grenze, die man kennen muss: Die Append-only-Zusage gilt für diese API.
-    Wer sich eine eigene DuckDB-Verbindung auf dieselbe Datei öffnet, kann
-    per SQL löschen. Gegen den eigenen entschlossenen Zugriff schützt die
-    Schicht nicht — gegen den versehentlichen schon, und der ist der häufige.
+    A limit one has to know: the append-only promise holds for this API.
+    Whoever opens their own DuckDB connection to the same file can delete via
+    SQL. The layer does not protect against one's own determined access —
+    against accidental access it does, and that is the common one.
 
-    Beispiel:
+    Example:
         >>> store = BitemporalStore(":memory:")
         >>> store.append(bars)
-        >>> sicht = store.view(as_of=datetime(2026, 3, 1, tzinfo=timezone.utc))
-        >>> frame = sicht.bars("AAPL.US")
+        >>> view = store.view(as_of=datetime(2026, 3, 1, tzinfo=timezone.utc))
+        >>> frame = view.bars("AAPL.US")
     """
 
     def __init__(self, path: str | Path = ":memory:", *, read_only: bool = False) -> None:
-        """Öffnet oder erzeugt eine Datenbank.
+        """Opens or creates a database.
 
         Args:
-            path: Dateipfad oder ``:memory:``. Dauerhafte Datenbanken gehören
-                nach ``~/claude-local/trading-app/`` — außerhalb von iCloud,
-                weil iCloud in eine offene Datenbankdatei hineinsynchronisiert
-                und sie dabei beschädigen kann (ADR-0003).
-            read_only: Nur-Lese-Zugriff. Für Auswertungen neben einem
-                laufenden Ingest.
+            path: File path or ``:memory:``. Persistent databases belong in
+                ``~/claude-local/trading-app/`` — outside iCloud, because
+                iCloud syncs into an open database file and can corrupt it
+                in the process (ADR-0003).
+            read_only: Read-only access. For analyses alongside a running
+                ingest.
         """
         self._path = str(path)
         self._conn = duckdb.connect(self._path, read_only=read_only)
@@ -364,45 +364,45 @@ class BitemporalStore:
         *,
         ingested_at: dt.datetime | None = None,
     ) -> int:
-        """Hängt Bars an. Ändert niemals bestehende Zeilen.
+        """Appends bars. Never changes existing rows.
 
-        Eine Korrektur ist keine Änderung, sondern eine weitere Zeile mit
-        späterem ``available_at``. Die alte Fassung bleibt stehen und bleibt
-        für Stichtage vor der Korrektur sichtbar.
+        A correction is not a change but another row with a later
+        ``available_at``. The old version stays and remains visible for
+        cut-off dates before the correction.
 
         Args:
-            bars: Die anzuhängenden Bars.
-            ingested_at: Speicherzeitpunkt, Vorgabe „jetzt". Nur für Tests
-                zu setzen — im Betrieb ist das die echte Uhr.
+            bars: The bars to append.
+            ingested_at: Storage time, default "now". Only to be set in
+                tests — in operation this is the real clock.
 
         Returns:
-            Zahl der geschriebenen Zeilen.
+            Number of rows written.
 
         Raises:
-            BarValidationError: Wenn ein Element keine ``Bar`` ist. Die
-                inhaltliche Prüfung hat dann schon in ``Bar`` stattgefunden.
+            BarValidationError: If an element is not a ``Bar``. The content
+                check has then already taken place in ``Bar``.
         """
-        jetzt = (
+        now = (
             dt.datetime.now(dt.timezone.utc)
             if ingested_at is None
             else _require_aware("ingested_at", ingested_at)
         )
 
-        zeilen: list[Sequence[Any]] = []
+        rows: list[Sequence[Any]] = []
         for bar in bars:
             if not isinstance(bar, Bar):
                 raise BarValidationError(
-                    f"Erwartet wurde eine Bar, bekommen: {type(bar).__name__}. "
-                    "Rohe Tupel oder dicts werden nicht angenommen — sie umgehen "
-                    "die Eingangsprüfung."
+                    f"Expected a Bar, got: {type(bar).__name__}. "
+                    "Raw tuples or dicts are not accepted — they bypass "
+                    "input validation."
                 )
-            zeilen.append(
+            rows.append(
                 (
                     bar.symbol,
                     bar.bar_size,
                     bar.event_time,
                     bar.available_at,
-                    jetzt,
+                    now,
                     bar.open,
                     bar.high,
                     bar.low,
@@ -413,7 +413,7 @@ class BitemporalStore:
                 )
             )
 
-        if not zeilen:
+        if not rows:
             return 0
 
         self._conn.executemany(
@@ -423,28 +423,28 @@ class BitemporalStore:
                 open, high, low, close, adjusted_close, volume, source
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            zeilen,
+            rows,
         )
-        return len(zeilen)
+        return len(rows)
 
     def view(self, as_of: dt.datetime) -> PointInTimeView:
-        """Erzeugt die Sicht auf den Wissensstand zum Zeitpunkt ``as_of``."""
+        """Creates the view of the state of knowledge at time ``as_of``."""
         return PointInTimeView(self._conn, as_of)
 
-    def zeilen_gesamt(self) -> int:
-        """Alle je geschriebenen Zeilen, Korrekturen eingeschlossen.
+    def total_rows(self) -> int:
+        """All rows ever written, corrections included.
 
-        Nur für Betrieb und Diagnose. Strategiecode hat hier nichts zu suchen:
-        Die Zahl enthält Zeilen, die zum Stichtag noch nicht bekannt waren.
+        For operations and diagnostics only. Strategy code has no business
+        here: the number includes rows that were not yet known at the
+        cut-off date.
         """
         return int(self._conn.execute("SELECT COUNT(*) FROM bars").fetchone()[0])
 
-    def historie(self, symbol: str, event_time: dt.datetime, bar_size: str = "1d") -> pd.DataFrame:
-        """Alle Fassungen **einer** Bar, älteste zuerst.
+    def history(self, symbol: str, event_time: dt.datetime, bar_size: str = "1d") -> pd.DataFrame:
+        """All versions of **one** bar, oldest first.
 
-        Die Prüfspur: Sie beantwortet „wann hat sich diese Zahl geändert, und
-        was stand vorher da?". Für Betrieb und Fehlersuche, nicht für
-        Strategien.
+        The audit trail: it answers "when did this number change, and what was
+        there before?". For operations and debugging, not for strategies.
         """
         return self._conn.execute(
             """

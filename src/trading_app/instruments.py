@@ -1,83 +1,85 @@
-"""Instrument-Stammdaten mit feldweiser Herkunft (Anlage-Spezifikation A5.1).
+"""Instrument master data with per-field provenance (investment spec A5.1).
 
-Die Schicht unter der Produktauswahl A5: TER, Tracking-Differenz,
-Fondsvolumen und die übrigen Merkmale von ETFs und ETCs, jeder einzelne Wert
-mit seiner Herkunft. A5.1 verlangt wörtlich: „Je Feld gespeichert: Wert,
-Quell-URL, Stand-Datum, Abrufdatum“. Feldweise, nicht zeilenweise: Die TER
-stammt aus dem KID vom Februar, das Fondsvolumen aus dem Factsheet vom August.
-Ein Modell mit *einem* Stand-Datum je Instrument kann das nicht abbilden und
-würde später falsche Vergleichsgruppen erzeugen.
+The layer beneath product selection A5: TER, tracking difference, fund size
+and the remaining characteristics of ETFs and ETCs, every single value with
+its provenance. A5.1 demands literally: "Stored per field: value, source URL,
+as-of date, retrieval date". Per field, not per row: the TER comes from the
+February KID, the fund size from the August factsheet. A model with *one*
+as-of date per instrument cannot represent that and would later produce
+wrong peer groups.
 
-**Entwurf: eine schmale Tabelle, eine Zeile je Feldwert**
-(``isin, feld, periode, wert, einheit, quelle_url, quelle_typ, status, stand,
-abgerufen_am``), keine breite Tabelle mit einer Spalte je Feld.
+**Design: one narrow table, one row per field value**
+(``isin, field, period, value, unit, source_url, source_type, status, as_of,
+retrieved_at``), not a wide table with one column per field.
 
-- Ein neues Feld ist ein Eintrag in ``FELDER``, keine Schemamigration.
-- Die Herkunft hängt an jeder Zeile, also an jedem einzelnen Wert. Die Frage
-  „woher stammt genau dieser Wert, und wie alt ist er?“ beantwortet die Zeile
-  selbst. Eine breite Tabelle bräuchte dafür vier Begleitspalten je Feld oder
-  wieder eine Zeile je Dokument — und damit das eine Stand-Datum pro Zeile,
-  das hier vermieden werden soll.
-- Jahreswerte (Tracking-Differenz je Kalenderjahr) sind Zeilen mit
-  ``periode``, keine Spalten ``td_2023``, ``td_2024`` …
-- ``wert`` steht als Text in der Datenbank und wird beim Lesen je Feldtyp
-  zurückverwandelt. Verworfen: eine DuckDB-``DECIMAL``-Spalte. Die hat eine
-  feste Nachkommazahl und rundet still (``0.12345678901`` wird in
-  ``DECIMAL(18,4)`` zu ``0.1235``), und ``.df()`` macht aus ihr ``float64``.
-  Beides verletzt „``Decimal``, gespeichert wie veröffentlicht“.
-- Preis der schmalen Form: Die Datenbank kennt den Typ eines Werts nicht. Die
-  Typprüfung sitzt deshalb in ``Feldwert`` und läuft beim Schreiben *und*
-  beim Lesen.
+- A new field is an entry in ``FIELDS``, not a schema migration.
+- The provenance is attached to every row, hence to every single value. The
+  question "where exactly does this value come from, and how old is it?" is
+  answered by the row itself. A wide table would need four companion columns
+  per field for that, or again one row per document — and with it the single
+  as-of date per row that is to be avoided here.
+- Annual values (tracking difference per calendar year) are rows with
+  ``period``, not columns ``td_2023``, ``td_2024`` …
+- ``value`` is stored as text in the database and converted back per field
+  type on reading. Rejected: a DuckDB ``DECIMAL`` column. It has a fixed
+  number of decimal places and rounds silently (``0.12345678901`` becomes
+  ``0.1235`` in ``DECIMAL(18,4)``), and ``.df()`` turns it into ``float64``.
+  Both violate "``Decimal``, stored as published".
+- The price of the narrow form: the database does not know a value's type.
+  Type checking therefore sits in ``FieldValue`` and runs on writing *and*
+  on reading.
 
-Zeitachsen (Qualitätsstandards 3.2; Anlage-Spezifikation A5.1, v1.3):
+Time axes (quality standards 3.2; investment spec A5.1, v1.3):
 
-| Spalte         | Rolle wie in ``bars`` | Bedeutung                                    |
+| Column         | Role as in ``bars``   | Meaning                                      |
 |----------------|-----------------------|----------------------------------------------|
-| `stand`        | `event_time`          | Datum des Dokuments, aus dem der Wert stammt |
-| `abgerufen_am` | `available_at`        | ab wann die App den Wert kannte              |
-| `ingested_at`  | `ingested_at`         | wann diese Zeile geschrieben wurde           |
+| `as_of`        | `event_time`          | date of the document the value comes from    |
+| `retrieved_at` | `available_at`        | from when the app knew the value             |
+| `ingested_at`  | `ingested_at`         | when this row was written                    |
 
-Point-in-time-Schlüssel ist ``abgerufen_am``, nicht ``stand``. Die echte
-Veröffentlichung liegt irgendwo dazwischen und steht selten im Dokument; der
-Abruf ist der früheste Zeitpunkt, zu dem die App den Wert sicher kannte. Sind
-zu einem Feld mehrere Werte bekannt, gilt der mit dem jüngsten ``stand``, bei
-gleichem Stand der zuletzt abgerufene. Ein älteres Dokument, das erst später
-erfasst wird, verdrängt also kein neueres.
+The point-in-time key is ``retrieved_at``, not ``as_of``. The actual
+publication lies somewhere in between and is rarely stated in the document;
+the retrieval is the earliest moment at which the app knew the value for
+certain. If several values are known for a field, the one with the latest
+``as_of`` applies; for equal ``as_of``, the one retrieved last. An older
+document that is recorded later therefore does not displace a newer one.
 
-Prüfstatus je Wert: ``VERIFIZIERT`` nur, wenn der Wert im Primärdokument
-gelesen wurde. Werte zweiter Hand (``quelle_typ`` ``sekundaer``) dürfen
-gespeichert werden, sind aber nie ``VERIFIZIERT``. Was ein unverifizierter
-Wert in den harten Filtern bewirkt, regelt ``harte_filter``.
+Careful: the column ``as_of`` is the document date. ``InstrumentView.as_of``
+is the view's cut-off date and is compared with ``retrieved_at``.
 
-Es gibt keinen Scraper. Werte kommen aus einer von Hand gepflegten,
-versionierten JSON-Datei (``lade_quelldatei``); den erlaubten Einzeldownload
-eines Pflichtdokuments erledigt ``sources.dokumente``. JSON statt YAML, weil
-für YAML kein Paket freigegeben ist.
+Verification status per value: ``VERIFIED`` only if the value was read in the
+primary document. Second-hand values (``source_type`` ``secondary``) may be
+stored but are never ``VERIFIED``. What an unverified value does in the hard
+filters is governed by ``hard_filters``.
 
-Format der Quelldatei — ein Eintrag je gelesenem Dokument; die Herkunft steht
-einmal am Dokument und gilt für jeden seiner Werte (Platzhalter, keine echten
-Daten)::
+There is no scraper. Values come from a hand-maintained, versioned JSON file
+(``load_source_file``); the permitted single download of a mandatory document
+is handled by ``sources.documents``. JSON rather than YAML because no package
+for YAML is approved.
 
-    {"dokumente": [{
+Format of the source file — one entry per document read; the provenance is
+stated once on the document and applies to each of its values (placeholders,
+no real data)::
+
+    {"documents": [{
         "isin": "XX0000000002",
-        "quelle_typ": "kid",
-        "quelle_url": "https://emittent.invalid/kid.pdf",
-        "stand": "2026-02-15",
-        "abgerufen_am": "2026-03-01T10:00:00+01:00",
-        "status": "VERIFIZIERT",
-        "werte": {
+        "source_type": "kid",
+        "source_url": "https://issuer.invalid/kid.pdf",
+        "as_of": "2026-02-15",
+        "retrieved_at": "2026-03-01T10:00:00+01:00",
+        "status": "VERIFIED",
+        "values": {
             "ter": 0.1234,
             "ucits": true,
-            "tracking_differenz": {"2024": -0.0123, "2025": 0.0456}
+            "tracking_difference": {"2024": -0.0123, "2025": 0.0456}
         }
     }]}
 
-Zahlen werden als ``Decimal`` gelesen, nie als ``float``. Die Einheit jedes
-Felds steht in ``FELDER``: ``ter`` in Prozent pro Jahr, also ``0.5`` für
-0,50 %.
+Numbers are read as ``Decimal``, never as ``float``. The unit of every field
+is in ``FIELDS``: ``ter`` in percent per year, so ``0.5`` for 0.50 %.
 
-Grenze wie bei ``BitemporalStore``: Die Append-only-Zusage gilt für diese API,
-nicht für jemanden, der mit eigener Verbindung per SQL in die Datei schreibt.
+Limit as with ``BitemporalStore``: the append-only promise holds for this API,
+not for someone who writes into the file via SQL on their own connection.
 """
 
 from __future__ import annotations
@@ -99,482 +101,483 @@ import pandas as pd
 from trading_app.bitemporal import BarValidationError, _require_aware
 
 __all__ = [
-    "FELDER",
-    "Ausschuettung",
-    "Feldtyp",
-    "Feldwert",
-    "FeldwertValidationError",
+    "FIELDS",
+    "Distribution",
+    "FieldType",
+    "FieldValue",
+    "FieldValueValidationError",
     "InstrumentStore",
     "InstrumentView",
-    "Pruefstatus",
-    "QuelleTyp",
-    "Replikation",
-    "lade_quelldatei",
+    "Replication",
+    "SourceType",
+    "VerificationStatus",
+    "load_source_file",
 ]
 
 
-class FeldwertValidationError(ValueError):
-    """Ein Stammdatenwert hat die Eingangsprüfung nicht bestanden."""
+class FieldValueValidationError(ValueError):
+    """A master-data value failed input validation."""
 
 
-class QuelleTyp(StrEnum):
-    """Art des Dokuments, aus dem ein Wert stammt."""
+class SourceType(StrEnum):
+    """Kind of document a value comes from."""
 
     KID = "kid"
     FACTSHEET = "factsheet"
-    PROSPEKT = "prospekt"
-    JAHRESBERICHT = "jahresbericht"
-    EMITTENT = "emittent"  # sonstige Veröffentlichung des Emittenten
-    BOERSE = "boerse"  # z. B. Deutsche Börse: XLM, Handelbarkeit
-    GESETZ = "gesetz"
-    SEKUNDAER = "sekundaer"  # zweite Hand, z. B. ein Vergleichsportal
+    PROSPECTUS = "prospectus"
+    ANNUAL_REPORT = "annual_report"
+    ISSUER = "issuer"  # any other publication by the issuer
+    EXCHANGE = "exchange"  # e.g. the Xetra operator: XLM, tradability
+    STATUTE = "statute"
+    SECONDARY = "secondary"  # second hand, e.g. a comparison portal
 
 
-class Pruefstatus(StrEnum):
-    """Kennzeichnung wie in der Spezifikation (A0, „Status-Kennzeichnung“)."""
+class VerificationStatus(StrEnum):
+    """The spec's status labels (A0) VERIFIZIERT and UNVERIFIZIERT."""
 
-    VERIFIZIERT = "VERIFIZIERT"
-    UNVERIFIZIERT = "UNVERIFIZIERT"
-
-
-class Replikation(StrEnum):
-    """Stufen wie in A5.3, Kriterium „Struktur und Gegenparteirisiko“."""
-
-    PHYSISCH_VOLLSTAENDIG = "physisch_vollstaendig"
-    PHYSISCH_OPTIMIERT = "physisch_optimiert"
-    SYNTHETISCH_EINE_GEGENPARTEI = "synthetisch_eine_gegenpartei"
-    SYNTHETISCH_MEHRERE_GEGENPARTEIEN = "synthetisch_mehrere_gegenparteien"
+    VERIFIED = "VERIFIED"
+    UNVERIFIED = "UNVERIFIED"
 
 
-class Ausschuettung(StrEnum):
-    THESAURIEREND = "thesaurierend"
-    AUSSCHUETTEND = "ausschuettend"
+class Replication(StrEnum):
+    """Levels as in A5.3, criterion "structure and counterparty risk"."""
+
+    PHYSICAL_FULL = "physical_full"
+    PHYSICAL_OPTIMISED = "physical_optimised"
+    SYNTHETIC_SINGLE_COUNTERPARTY = "synthetic_single_counterparty"
+    SYNTHETIC_MULTIPLE_COUNTERPARTIES = "synthetic_multiple_counterparties"
+
+
+class Distribution(StrEnum):
+    ACCUMULATING = "accumulating"
+    DISTRIBUTING = "distributing"
 
 
 # ---------------------------------------------------------------------------
-# Feldtypen
+# Field types
 #
-# Jede Prüffunktion nimmt den Wert in seiner Python-Form *oder* in seiner
-# Textform aus der Datenbank und gibt die kanonische Python-Form zurück. So
-# läuft beim Lesen dieselbe Prüfung wie beim Schreiben.
+# Every check function takes the value in its Python form *or* in its text
+# form from the database and returns the canonical Python form. That way the
+# same check runs on reading as on writing.
 # ---------------------------------------------------------------------------
 
 
-def _dezimal(wert: object) -> Decimal:
-    # bool ist in Python ein int: True als 1 durchzulassen wäre ein stiller
-    # Tippfehler in der Quelldatei.
-    if isinstance(wert, bool) or not isinstance(wert, (Decimal, int, str)):
-        raise FeldwertValidationError(
-            f"erwartet wird Decimal, int oder Text, bekommen: {type(wert).__name__}. "
-            "float ist verboten — 0.1 als float ist nicht genau 0,1."
+def _decimal(value: object) -> Decimal:
+    # bool is an int in Python: letting True through as 1 would be a silent
+    # typo in the source file.
+    if isinstance(value, bool) or not isinstance(value, (Decimal, int, str)):
+        raise FieldValueValidationError(
+            f"expected Decimal, int or text, got: {type(value).__name__}. "
+            "float is forbidden — 0.1 as a float is not exactly 0.1."
         )
     try:
-        zahl = Decimal(wert)
+        number = Decimal(value)
     except InvalidOperation:
-        raise FeldwertValidationError(
-            f"{wert!r} ist keine Zahl (Dezimalpunkt, kein Komma)"
+        raise FieldValueValidationError(
+            f"{value!r} is not a number (decimal point, no comma)"
         ) from None
-    if not zahl.is_finite():
-        raise FeldwertValidationError(f"{wert!r} ist keine endliche Zahl")
-    return zahl
+    if not number.is_finite():
+        raise FieldValueValidationError(f"{value!r} is not a finite number")
+    return number
 
 
-def _ja_nein(wert: object) -> bool:
-    if isinstance(wert, bool):
-        return wert
-    if wert in ("true", "false"):
-        return wert == "true"
-    raise FeldwertValidationError(f"erwartet wird true oder false, bekommen: {wert!r}")
+def _yes_no(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in ("true", "false"):
+        return value == "true"
+    raise FieldValueValidationError(f"expected true or false, got: {value!r}")
 
 
-def _datum(wert: object) -> dt.date:
-    # datetime ist eine Unterklasse von date und trüge eine Uhrzeit mit.
-    if isinstance(wert, dt.date) and not isinstance(wert, dt.datetime):
-        return wert
-    if isinstance(wert, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", wert):
+def _date(value: object) -> dt.date:
+    # datetime is a subclass of date and would carry a time of day.
+    if isinstance(value, dt.date) and not isinstance(value, dt.datetime):
+        return value
+    if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
         try:
-            return dt.date.fromisoformat(wert)
+            return dt.date.fromisoformat(value)
         except ValueError:
             pass
-    raise FeldwertValidationError(
-        f"erwartet wird ein Datum JJJJ-MM-TT ohne Uhrzeit, bekommen: {wert!r}"
+    raise FieldValueValidationError(
+        f"expected a date YYYY-MM-DD without a time, got: {value!r}"
     )
 
 
-def _text(wert: object) -> str:
-    if not isinstance(wert, str) or not wert.strip():
-        raise FeldwertValidationError(f"erwartet wird nicht-leerer Text, bekommen: {wert!r}")
-    return wert.strip()
+def _text(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise FieldValueValidationError(f"expected non-empty text, got: {value!r}")
+    return value.strip()
 
 
-def _land(wert: object) -> str:
-    if not isinstance(wert, str) or not re.fullmatch(r"[A-Z]{2}", wert):
-        raise FeldwertValidationError(
-            f"erwartet wird ein Ländercode nach ISO 3166-1 alpha-2 wie 'LU', bekommen: {wert!r}"
+def _country(value: object) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Z]{2}", value):
+        raise FieldValueValidationError(
+            f"expected an ISO 3166-1 alpha-2 country code such as 'LU', got: {value!r}"
         )
-    return wert
+    return value
 
 
-def _auswahl(auswahl: type[StrEnum]) -> Callable[[object], StrEnum]:
-    def pruefe(wert: object) -> StrEnum:
+def _choice(choices: type[StrEnum]) -> Callable[[object], StrEnum]:
+    def check(value: object) -> StrEnum:
         try:
-            return auswahl(wert)
+            return choices(value)
         except ValueError:
-            erlaubt = ", ".join(e.value for e in auswahl)
-            raise FeldwertValidationError(
-                f"{wert!r} ist nicht erlaubt; erlaubt: {erlaubt}"
+            allowed = ", ".join(e.value for e in choices)
+            raise FieldValueValidationError(
+                f"{value!r} is not allowed; allowed: {allowed}"
             ) from None
 
-    return pruefe
+    return check
 
 
-def _als_text(wert: object) -> str:
-    """Kanonische Textform für die Datenbank. Umkehrung: die Prüffunktion."""
-    if isinstance(wert, bool):
-        return "true" if wert else "false"
-    if isinstance(wert, dt.date):
-        return wert.isoformat()
-    # Decimal: str() ist exakt und behält die Nachkommastellen wie
-    # veröffentlicht ("0.1230" bleibt "0.1230"). StrEnum: der Wert.
-    return str(wert)
+def _as_text(value: object) -> str:
+    """Canonical text form for the database. Inverse: the check function."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, dt.date):
+        return value.isoformat()
+    # Decimal: str() is exact and keeps the decimal places as published
+    # ("0.1230" stays "0.1230"). StrEnum: the value.
+    return str(value)
 
 
 @dataclass(frozen=True, slots=True)
-class Feldtyp:
-    """Wie ein Feld geprüft und geführt wird.
+class FieldType:
+    """How a field is checked and stored.
 
-    Attribute:
-        pruefe: Prüf- und Umwandlungsfunktion.
-        einheit: Einheit, in der der Wert gespeichert wird; leer bei Merkmalen.
-        je_jahr: Jahreswert mit Kalenderjahr als ``periode``.
+    Attributes:
+        check: Check and conversion function.
+        unit: Unit in which the value is stored; empty for characteristics.
+        per_year: Annual value with the calendar year as ``period``.
     """
 
-    pruefe: Callable[[object], Any]
-    einheit: str = ""
-    je_jahr: bool = False
+    check: Callable[[object], Any]
+    unit: str = ""
+    per_year: bool = False
 
 
-# Die Felder, die A5.2 und A5.3 brauchen. Ein neues Feld ist eine Zeile hier.
-FELDER: dict[str, Feldtyp] = {
-    "ter": Feldtyp(_dezimal, "% p. a."),
-    # Wie veröffentlicht, ungerundet. Die Wesentlichkeitsschwelle 0,05 Pp.
-    # ist Sache der Bewertung A5.3, nicht der Ablage.
-    "tracking_differenz": Feldtyp(_dezimal, "Prozentpunkte p. a.", je_jahr=True),
-    "fondsvolumen": Feldtyp(_dezimal, "EUR"),
-    "replikationsmethode": Feldtyp(_auswahl(Replikation)),
-    "domizil": Feldtyp(_land),
-    "auflagedatum": Feldtyp(_datum),
-    # Für Filter 2 in der Schreibweise von A5.5, soweit A5.5 den Index nennt.
-    "index_name": Feldtyp(_text),
-    "ausschuettungsart": Feldtyp(_auswahl(Ausschuettung)),
-    "ucits": Feldtyp(_ja_nein),
-    "kid_sprache_de": Feldtyp(_ja_nein),
-    "xetra_handelbar": Feldtyp(_ja_nein),
-    "transaktionskosten_kid": Feldtyp(_dezimal, "Prozentpunkte"),
-    "xlm": Feldtyp(_dezimal, "Basispunkte"),
-    "aktienfonds_invstg": Feldtyp(_ja_nein),  # § 2 Abs. 6 InvStG
-    "waehrungsgesichert": Feldtyp(_ja_nein),
-    "haltekosten": Feldtyp(_dezimal, "% p. a."),  # nur Gold-ETC, ersetzt die TD
-    # A5.2 Nr. 1 für Gold: ETC deutschen Rechts mit ausschließlichem Liefer-
-    # oder Erlösanspruch auf hinterlegtes Gold.
-    "gold_etc_lieferanspruch": Feldtyp(_ja_nein),
+# The fields that A5.2 and A5.3 need. A new field is one line here.
+FIELDS: dict[str, FieldType] = {
+    "ter": FieldType(_decimal, "% p. a."),
+    # As published, unrounded. The materiality threshold of 0.05 pp is a
+    # matter for scoring A5.3, not for storage.
+    "tracking_difference": FieldType(_decimal, "percentage points p. a.", per_year=True),
+    "fund_size": FieldType(_decimal, "EUR"),
+    "replication_method": FieldType(_choice(Replication)),
+    "domicile": FieldType(_country),
+    "inception_date": FieldType(_date),
+    # For filter 2 in the spelling of A5.5, where A5.5 names the index.
+    "index_name": FieldType(_text),
+    "distribution_type": FieldType(_choice(Distribution)),
+    "ucits": FieldType(_yes_no),
+    "kid_language_de": FieldType(_yes_no),
+    "xetra_tradable": FieldType(_yes_no),
+    "transaction_costs_kid": FieldType(_decimal, "percentage points"),
+    "xlm": FieldType(_decimal, "basis points"),
+    "equity_fund_invstg": FieldType(_yes_no),  # § 2 Abs. 6 InvStG
+    "currency_hedged": FieldType(_yes_no),
+    "holding_costs": FieldType(_decimal, "% p. a."),  # gold ETC only, replaces the TD
+    # A5.2 no. 1 for gold: ETC under German law with an exclusive claim to
+    # delivery of, or to the proceeds from, deposited gold.
+    "gold_etc_delivery_claim": FieldType(_yes_no),
 }
 
 
-def _feldtyp(feld: str) -> Feldtyp:
-    typ = FELDER.get(feld)
-    if typ is None:
-        raise FeldwertValidationError(
-            f"unbekanntes Feld {feld!r}. Bekannt: {', '.join(FELDER)}. "
-            "Ein neues Feld ist ein Eintrag in FELDER."
+def _field_type(field: str) -> FieldType:
+    field_type = FIELDS.get(field)
+    if field_type is None:
+        raise FieldValueValidationError(
+            f"unknown field {field!r}. Known: {', '.join(FIELDS)}. "
+            "A new field is an entry in FIELDS."
         )
-    return typ
+    return field_type
 
 
-_ISIN_MUSTER = re.compile(r"[A-Z]{2}[A-Z0-9]{9}[0-9]")
+_ISIN_PATTERN = re.compile(r"[A-Z]{2}[A-Z0-9]{9}[0-9]")
 
 
-def _pruefe_isin(isin: object) -> str:
-    """Format und Prüfziffer nach ISO 6166.
+def _check_isin(isin: object) -> str:
+    """Format and check digit according to ISO 6166.
 
-    Die Prüfziffer fängt die meisten Tippfehler in einer von Hand gepflegten
-    Liste ab — eine vertauschte Ziffer ergäbe sonst still ein anderes oder gar
-    kein Instrument.
+    The check digit catches most typos in a hand-maintained list — a
+    transposed digit would otherwise silently yield a different instrument or
+    none at all.
     """
-    if not isinstance(isin, str) or not _ISIN_MUSTER.fullmatch(isin):
-        raise FeldwertValidationError(
-            f"ISIN {isin!r} hat nicht das Format nach ISO 6166 (2 Buchstaben, 9 Zeichen, 1 Ziffer)"
+    if not isinstance(isin, str) or not _ISIN_PATTERN.fullmatch(isin):
+        raise FieldValueValidationError(
+            f"ISIN {isin!r} does not have the ISO 6166 format "
+            "(2 letters, 9 characters, 1 digit)"
         )
-    # Buchstaben zu Zahlen (A=10 … Z=35), dann Luhn über die Ziffernfolge.
-    ziffern = "".join(str(int(zeichen, 36)) for zeichen in isin[:-1])
-    summe = 0
-    for position, zeichen in enumerate(reversed(ziffern)):
-        ziffer = int(zeichen) * (2 if position % 2 == 0 else 1)
-        summe += ziffer // 10 + ziffer % 10
-    if (10 - summe % 10) % 10 != int(isin[-1]):
-        raise FeldwertValidationError(f"ISIN {isin} hat eine falsche Prüfziffer — Tippfehler?")
+    # Letters to numbers (A=10 … Z=35), then Luhn over the digit string.
+    digits = "".join(str(int(char, 36)) for char in isin[:-1])
+    total = 0
+    for position, char in enumerate(reversed(digits)):
+        digit = int(char) * (2 if position % 2 == 0 else 1)
+        total += digit // 10 + digit % 10
+    if (10 - total % 10) % 10 != int(isin[-1]):
+        raise FieldValueValidationError(f"ISIN {isin} has a wrong check digit — typo?")
     return isin
 
 
-def _zeitpunkt(name: str, wert: dt.datetime) -> dt.datetime:
-    """``_require_aware`` aus ``bitemporal``, mit der Fehlerklasse dieser Schicht."""
+def _timestamp(name: str, value: dt.datetime) -> dt.datetime:
+    """``_require_aware`` from ``bitemporal``, with this layer's error class."""
     try:
-        return _require_aware(name, wert)
-    except BarValidationError as fehler:
-        raise FeldwertValidationError(str(fehler)) from None
+        return _require_aware(name, value)
+    except BarValidationError as error:
+        raise FieldValueValidationError(str(error)) from None
 
 
 @dataclass(frozen=True, slots=True)
-class Feldwert:
-    """Ein einzelner Stammdatenwert mit seiner vollständigen Herkunft.
+class FieldValue:
+    """A single master-data value with its complete provenance.
 
-    Unveränderlich, wie ``Bar``. Die Prüfung sitzt hier und nicht im Store,
-    damit es keinen Weg gibt, einen ungeprüften Wert zu bauen.
+    Immutable, like ``Bar``. Validation sits here and not in the store, so
+    that there is no way to build an unchecked value.
 
-    Attribute:
-        isin: ISIN des Instruments; die Prüfziffer wird geprüft.
-        feld: Name aus ``FELDER``.
-        wert: Der Wert wie veröffentlicht; Typ je Feld (``Decimal``, ``bool``,
-            ``date``, Text, Auswahl). ``float`` wird abgewiesen.
-        quelle_url: Wo der Wert steht.
-        quelle_typ: Art des Dokuments.
-        status: ``VERIFIZIERT`` nur bei gelesenem Primärdokument.
-        stand: Datum des Dokuments.
-        abgerufen_am: Ab wann die App den Wert kannte, tz-bewusst.
-        periode: Kalenderjahr bei Jahreswerten, sonst leer.
-        einheit: Wird aus ``FELDER`` gesetzt. Angegeben nur zur Gegenprobe.
+    Attributes:
+        isin: ISIN of the instrument; the check digit is verified.
+        field: Name from ``FIELDS``.
+        value: The value as published; type per field (``Decimal``, ``bool``,
+            ``date``, text, choice). ``float`` is rejected.
+        source_url: Where the value is stated.
+        source_type: Kind of document.
+        status: ``VERIFIED`` only for a primary document that was read.
+        as_of: Date of the document.
+        retrieved_at: From when the app knew the value, tz-aware.
+        period: Calendar year for annual values, otherwise empty.
+        unit: Set from ``FIELDS``. Given only as a cross-check.
     """
 
     isin: str
-    feld: str
-    wert: Any
-    quelle_url: str
-    quelle_typ: QuelleTyp
-    status: Pruefstatus
-    stand: dt.date
-    abgerufen_am: dt.datetime
-    periode: str = ""
-    einheit: str | None = None
+    field: str
+    value: Any
+    source_url: str
+    source_type: SourceType
+    status: VerificationStatus
+    as_of: dt.date
+    retrieved_at: dt.datetime
+    period: str = ""
+    unit: str | None = None
 
     def __post_init__(self) -> None:
-        _pruefe_isin(self.isin)
-        typ = _feldtyp(self.feld)
+        _check_isin(self.isin)
+        field_type = _field_type(self.field)
         try:
-            wert = typ.pruefe(self.wert)
-        except FeldwertValidationError as fehler:
-            raise FeldwertValidationError(f"{self.feld}: {fehler}") from None
+            value = field_type.check(self.value)
+        except FieldValueValidationError as error:
+            raise FieldValueValidationError(f"{self.field}: {error}") from None
 
-        einheit = typ.einheit if self.einheit is None else self.einheit
-        if einheit != typ.einheit:
-            raise FeldwertValidationError(
-                f"{self.feld} wird in {typ.einheit!r} geführt, angegeben war {einheit!r}. "
-                "Umrechnen oder FELDER ändern — nie still mischen."
+        unit = field_type.unit if self.unit is None else self.unit
+        if unit != field_type.unit:
+            raise FieldValueValidationError(
+                f"{self.field} is stored in {field_type.unit!r}, {unit!r} was given. "
+                "Convert, or change FIELDS — never mix silently."
             )
 
-        url = urllib.parse.urlsplit(self.quelle_url) if isinstance(self.quelle_url, str) else None
+        url = urllib.parse.urlsplit(self.source_url) if isinstance(self.source_url, str) else None
         if url is None or url.scheme not in ("http", "https") or not url.netloc:
-            raise FeldwertValidationError(
-                f"quelle_url {self.quelle_url!r} ist keine http(s)-Adresse. "
-                "Ohne Quelle ist ein Wert nicht nachprüfbar (A5.1)."
+            raise FieldValueValidationError(
+                f"source_url {self.source_url!r} is not an http(s) address. "
+                "Without a source a value cannot be checked (A5.1)."
             )
 
-        quelle_typ = _auswahl(QuelleTyp)(self.quelle_typ)
-        status = _auswahl(Pruefstatus)(self.status)
-        if status is Pruefstatus.VERIFIZIERT and quelle_typ is QuelleTyp.SEKUNDAER:
-            raise FeldwertValidationError(
-                "Ein Wert aus zweiter Hand kann nicht VERIFIZIERT sein. VERIFIZIERT heißt: "
-                "im Primärdokument gelesen (A5.1). Als UNVERIFIZIERT speichern."
+        source_type = _choice(SourceType)(self.source_type)
+        status = _choice(VerificationStatus)(self.status)
+        if status is VerificationStatus.VERIFIED and source_type is SourceType.SECONDARY:
+            raise FieldValueValidationError(
+                "A second-hand value cannot be VERIFIED. VERIFIED means: "
+                "read in the primary document (A5.1). Store it as UNVERIFIED."
             )
 
-        stand = _datum(self.stand)
-        abgerufen_am = _zeitpunkt("abgerufen_am", self.abgerufen_am)
-        # Wie available_at >= event_time bei Bars (K2). Verglichen in UTC,
-        # genau wie der CHECK in der Tabelle.
-        if abgerufen_am.date() < stand:
-            raise FeldwertValidationError(
-                f"abgerufen_am ({abgerufen_am.isoformat()}) liegt vor dem Stand-Datum "
-                f"({stand}). Ein Dokument lässt sich nicht abrufen, bevor es existiert "
-                "(K2; verglichen in UTC)."
+        as_of = _date(self.as_of)
+        retrieved_at = _timestamp("retrieved_at", self.retrieved_at)
+        # Like available_at >= event_time for bars (K2). Compared in UTC,
+        # exactly like the CHECK in the table.
+        if retrieved_at.date() < as_of:
+            raise FieldValueValidationError(
+                f"retrieved_at ({retrieved_at.isoformat()}) is before the as-of date "
+                f"({as_of}). A document cannot be retrieved before it exists "
+                "(K2; compared in UTC)."
             )
 
-        if typ.je_jahr:
-            if not isinstance(self.periode, str) or not re.fullmatch(r"\d{4}", self.periode):
-                raise FeldwertValidationError(
-                    f"{self.feld} ist ein Jahreswert und braucht das Kalenderjahr als "
-                    f"periode, z. B. '2025'; bekommen: {self.periode!r}"
+        if field_type.per_year:
+            if not isinstance(self.period, str) or not re.fullmatch(r"\d{4}", self.period):
+                raise FieldValueValidationError(
+                    f"{self.field} is an annual value and needs the calendar year as "
+                    f"period, e.g. '2025'; got: {self.period!r}"
                 )
-            if stand < dt.date(int(self.periode), 12, 31):
-                raise FeldwertValidationError(
-                    f"{self.feld} {self.periode} mit Stand {stand}: Ein Jahreswert steht "
-                    "frühestens am Jahresende fest."
+            if as_of < dt.date(int(self.period), 12, 31):
+                raise FieldValueValidationError(
+                    f"{self.field} {self.period} with as-of date {as_of}: an annual value "
+                    "is final at year end at the earliest."
                 )
-        elif self.periode != "":
-            raise FeldwertValidationError(
-                f"{self.feld} hat keine Perioden; periode muss leer sein, war {self.periode!r}"
+        elif self.period != "":
+            raise FieldValueValidationError(
+                f"{self.field} has no periods; period must be empty, was {self.period!r}"
             )
 
-        object.__setattr__(self, "wert", wert)
-        object.__setattr__(self, "einheit", einheit)
-        object.__setattr__(self, "quelle_typ", quelle_typ)
+        object.__setattr__(self, "value", value)
+        object.__setattr__(self, "unit", unit)
+        object.__setattr__(self, "source_type", source_type)
         object.__setattr__(self, "status", status)
-        object.__setattr__(self, "stand", stand)
-        object.__setattr__(self, "abgerufen_am", abgerufen_am)
+        object.__setattr__(self, "as_of", as_of)
+        object.__setattr__(self, "retrieved_at", retrieved_at)
 
 
 _SCHEMA = """
-CREATE SEQUENCE IF NOT EXISTS instrument_felder_row_id START 1;
+CREATE SEQUENCE IF NOT EXISTS instrument_fields_row_id START 1;
 
-CREATE TABLE IF NOT EXISTS instrument_felder (
-    -- Monotone Schreibreihenfolge, letzter Tiebreaker wie in bars.
-    row_id        BIGINT      PRIMARY KEY DEFAULT nextval('instrument_felder_row_id'),
+CREATE TABLE IF NOT EXISTS instrument_fields (
+    -- Monotonic write order, last tiebreaker as in bars.
+    row_id        BIGINT      PRIMARY KEY DEFAULT nextval('instrument_fields_row_id'),
     isin          VARCHAR     NOT NULL,
-    feld          VARCHAR     NOT NULL,
-    -- Kalenderjahr bei Jahreswerten, sonst ''. Nicht NULL, damit Gleichheit
-    -- ohne Sonderfall funktioniert.
-    periode       VARCHAR     NOT NULL,
-    -- Kanonischer Text; Rückverwandlung je Feldtyp in Python (Modul-Docstring).
-    wert          VARCHAR     NOT NULL,
-    einheit       VARCHAR     NOT NULL,
-    quelle_url    VARCHAR     NOT NULL,
-    quelle_typ    VARCHAR     NOT NULL,
+    field         VARCHAR     NOT NULL,
+    -- Calendar year for annual values, otherwise ''. Not NULL, so that
+    -- equality works without a special case.
+    period        VARCHAR     NOT NULL,
+    -- Canonical text; converted back per field type in Python (module docstring).
+    value         VARCHAR     NOT NULL,
+    unit          VARCHAR     NOT NULL,
+    source_url    VARCHAR     NOT NULL,
+    source_type   VARCHAR     NOT NULL,
     status        VARCHAR     NOT NULL,
-    stand         DATE        NOT NULL,
-    abgerufen_am  TIMESTAMPTZ NOT NULL,
+    as_of         DATE        NOT NULL,
+    retrieved_at  TIMESTAMPTZ NOT NULL,
     ingested_at   TIMESTAMPTZ NOT NULL,
-    -- Wiederholt die Prüfungen aus Feldwert, die ohne FELDER auskommen.
-    CHECK (status IN ('VERIFIZIERT', 'UNVERIFIZIERT')),
-    CHECK (status = 'UNVERIFIZIERT' OR quelle_typ <> 'sekundaer'),
-    -- timezone('UTC', …), sonst hinge das Ergebnis von der Zeitzone des
-    -- Rechners ab.
-    CHECK (CAST(timezone('UTC', abgerufen_am) AS DATE) >= stand)
+    -- Repeats the checks from FieldValue that do without FIELDS.
+    CHECK (status IN ('VERIFIED', 'UNVERIFIED')),
+    CHECK (status = 'UNVERIFIED' OR source_type <> 'secondary'),
+    -- timezone('UTC', …), otherwise the result would depend on the
+    -- machine's time zone.
+    CHECK (CAST(timezone('UTC', retrieved_at) AS DATE) >= as_of)
 );
 
-CREATE INDEX IF NOT EXISTS instrument_felder_pit_idx
-    ON instrument_felder (isin, feld, abgerufen_am);
+CREATE INDEX IF NOT EXISTS instrument_fields_pit_idx
+    ON instrument_fields (isin, field, retrieved_at);
 """
 
-# Was eine Sicht nach außen gibt, in der Reihenfolge der Feldwert-Attribute.
-# row_id und ingested_at fehlen bewusst — wie bei PointInTimeView.
-_VIEW_SPALTEN = (
+# What a view returns, in the order of the FieldValue attributes.
+# row_id and ingested_at are deliberately missing — as with PointInTimeView.
+_VIEW_COLUMNS = (
     "isin",
-    "feld",
-    "wert",
-    "quelle_url",
-    "quelle_typ",
+    "field",
+    "value",
+    "source_url",
+    "source_type",
     "status",
-    "stand",
-    "abgerufen_am",
-    "periode",
-    "einheit",
+    "as_of",
+    "retrieved_at",
+    "period",
+    "unit",
 )
 
 
 class InstrumentView:
-    """Stammdaten, wie sie zum Zeitpunkt ``as_of`` bekannt waren.
+    """Master data as it was known at time ``as_of``.
 
-    Das einzige Objekt, das die Produktauswahl zu sehen bekommt. Es liefert
-    nur Werte mit ``abgerufen_am <= as_of``; ein Factsheet, das erst nach dem
-    Stichtag abgerufen wurde, existiert für diese Sicht nicht. Es gibt keine
-    Methode, die „alles“ liefert.
+    The only object product selection gets to see. It returns only values
+    with ``retrieved_at`` at or before this view's ``as_of`` (the cut-off
+    date, not the document date column of the same name); a factsheet
+    retrieved only after the cut-off date does not exist for this view. There
+    is no method that returns "everything".
     """
 
     def __init__(self, conn: duckdb.DuckDBPyConnection, as_of: dt.datetime) -> None:
         self._conn = conn
-        self._as_of = _zeitpunkt("as_of", as_of)
+        self._as_of = _timestamp("as_of", as_of)
 
     @property
     def as_of(self) -> dt.datetime:
-        """Der Stichtag dieser Sicht (UTC)."""
+        """The cut-off date of this view (UTC)."""
         return self._as_of
 
     def __repr__(self) -> str:
         return f"InstrumentView(as_of={self._as_of.isoformat()})"
 
-    def feld(self, isin: str, feld: str) -> Feldwert | None:
-        """Der am Stichtag geltende Wert eines Felds, oder None.
+    def field(self, isin: str, field: str) -> FieldValue | None:
+        """The value of a field in force at the cut-off date, or None.
 
-        Kein Wert ist ein gültiges Ergebnis, kein Fehler: Vor dem ersten Abruf
-        wusste die App nichts über das Instrument.
+        No value is a valid result, not an error: before the first retrieval
+        the app knew nothing about the instrument.
         """
-        if _feldtyp(feld).je_jahr:
-            raise FeldwertValidationError(f"{feld} ist ein Jahreswert — reihe() benutzen")
-        werte = self._geltend(isin, feld)
-        return werte[0] if werte else None
+        if _field_type(field).per_year:
+            raise FieldValueValidationError(f"{field} is an annual value — use series()")
+        values = self._current(isin, field)
+        return values[0] if values else None
 
-    def reihe(self, isin: str, feld: str) -> dict[str, Feldwert]:
-        """Die am Stichtag geltenden Jahreswerte eines Felds, Jahr aufsteigend."""
-        if not _feldtyp(feld).je_jahr:
-            raise FeldwertValidationError(f"{feld} ist kein Jahreswert — feld() benutzen")
-        return {wert.periode: wert for wert in self._geltend(isin, feld)}
+    def series(self, isin: str, field: str) -> dict[str, FieldValue]:
+        """The annual values of a field in force at the cut-off date, year ascending."""
+        if not _field_type(field).per_year:
+            raise FieldValueValidationError(f"{field} is not an annual value — use field()")
+        return {value.period: value for value in self._current(isin, field)}
 
     def isins(self) -> list[str]:
-        """Instrumente, zu denen am Stichtag mindestens ein Wert bekannt war."""
-        zeilen = self._conn.execute(
-            "SELECT DISTINCT isin FROM instrument_felder WHERE abgerufen_am <= ? ORDER BY isin",
+        """Instruments for which at least one value was known at the cut-off date."""
+        rows = self._conn.execute(
+            "SELECT DISTINCT isin FROM instrument_fields WHERE retrieved_at <= ? ORDER BY isin",
             [self._as_of],
         ).fetchall()
-        return [zeile[0] for zeile in zeilen]
+        return [row[0] for row in rows]
 
-    def _geltend(self, isin: str, feld: str) -> list[Feldwert]:
-        """Je Periode der geltende Wert: jüngster Stand, dann jüngster Abruf."""
-        spalten = ", ".join(_VIEW_SPALTEN)
+    def _current(self, isin: str, field: str) -> list[FieldValue]:
+        """Per period the value in force: latest as-of date, then latest retrieval."""
+        columns = ", ".join(_VIEW_COLUMNS)
         sql = f"""
-            SELECT {spalten}
+            SELECT {columns}
             FROM (
                 SELECT *, ROW_NUMBER() OVER (
-                    PARTITION BY periode
-                    ORDER BY stand DESC, abgerufen_am DESC, row_id DESC
-                ) AS _rang
-                FROM instrument_felder
-                WHERE isin = ? AND feld = ? AND abgerufen_am <= ?
+                    PARTITION BY period
+                    ORDER BY as_of DESC, retrieved_at DESC, row_id DESC
+                ) AS _rank
+                FROM instrument_fields
+                WHERE isin = ? AND field = ? AND retrieved_at <= ?
             )
-            WHERE _rang = 1
-            ORDER BY periode
+            WHERE _rank = 1
+            ORDER BY period
         """
-        zeilen = self._conn.execute(sql, [isin, feld, self._as_of]).fetchall()
-        # Zurück durch Feldwert: dieselbe Prüfung wie beim Schreiben, auch
-        # gegen Zeilen, die jemand an der API vorbei per SQL geschrieben hat.
-        return [Feldwert(*zeile) for zeile in zeilen]
+        rows = self._conn.execute(sql, [isin, field, self._as_of]).fetchall()
+        # Back through FieldValue: the same check as on writing, also against
+        # rows that someone wrote via SQL, bypassing the API.
+        return [FieldValue(*row) for row in rows]
 
 
-_GLEICHE_ZEILE = """
-    SELECT 1 FROM instrument_felder
-    WHERE isin = ? AND feld = ? AND periode = ? AND wert = ? AND einheit = ?
-      AND quelle_url = ? AND quelle_typ = ? AND status = ? AND stand = ?
-      AND abgerufen_am = ?
+_SAME_ROW = """
+    SELECT 1 FROM instrument_fields
+    WHERE isin = ? AND field = ? AND period = ? AND value = ? AND unit = ?
+      AND source_url = ? AND source_type = ? AND status = ? AND as_of = ?
+      AND retrieved_at = ?
     LIMIT 1
 """
 
-_EINFUEGEN = """
-    INSERT INTO instrument_felder (
-        isin, feld, periode, wert, einheit, quelle_url, quelle_typ, status,
-        stand, abgerufen_am, ingested_at
+_INSERT = """
+    INSERT INTO instrument_fields (
+        isin, field, period, value, unit, source_url, source_type, status,
+        as_of, retrieved_at, ingested_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
 class InstrumentStore:
-    """Append-only-Speicher für Instrument-Stammdaten auf DuckDB.
+    """Append-only store for instrument master data on DuckDB.
 
-    Kein Update, kein Delete — aus demselben Grund wie bei
-    ``BitemporalStore``. Eine korrigierte TER ist eine neue Zeile mit
-    späterem ``abgerufen_am``; die alte bleibt für frühere Stichtage sichtbar.
+    No update, no delete — for the same reason as with ``BitemporalStore``.
+    A corrected TER is a new row with a later ``retrieved_at``; the old one
+    stays visible for earlier cut-off dates.
 
-    Beispiel:
+    Example:
         >>> store = InstrumentStore(":memory:")
-        >>> store.append(lade_quelldatei("stammdaten.json"))
-        >>> sicht = store.view(as_of=datetime(2026, 9, 1, tzinfo=timezone.utc))
-        >>> sicht.feld("XX0000000002", "ter")
+        >>> store.append(load_source_file("instruments.json"))
+        >>> view = store.view(as_of=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        >>> view.field("XX0000000002", "ter")
     """
 
     def __init__(self, path: str | Path = ":memory:", *, read_only: bool = False) -> None:
-        """Öffnet oder erzeugt eine Datenbank.
+        """Opens or creates a database.
 
         Args:
-            path: Dateipfad oder ``:memory:``. Dauerhafte Datenbanken gehören
-                nach ``~/claude-local/trading-app/``, außerhalb von iCloud
-                (ADR-0003).
-            read_only: Nur-Lese-Zugriff.
+            path: File path or ``:memory:``. Persistent databases belong in
+                ``~/claude-local/trading-app/``, outside iCloud (ADR-0003).
+            read_only: Read-only access.
         """
         self._path = str(path)
         self._conn = duckdb.connect(self._path, read_only=read_only)
@@ -596,158 +599,161 @@ class InstrumentStore:
 
     def append(
         self,
-        werte: Iterable[Feldwert],
+        values: Iterable[FieldValue],
         *,
         ingested_at: dt.datetime | None = None,
     ) -> int:
-        """Hängt Werte an. Ändert niemals bestehende Zeilen.
+        """Appends values. Never changes existing rows.
 
-        Eine wortgleiche Wiederholung — dieselbe Quelldatei ein zweites Mal
-        geladen — wird übersprungen, damit Nachladen idempotent bleibt. Jede
-        Abweichung, auch nur im Abrufdatum, ist eine neue Zeile. Alles oder
-        nichts: Scheitert eine Zeile, wird keine geschrieben.
+        A verbatim repetition — the same source file loaded a second time — is
+        skipped, so that reloading stays idempotent. Any difference, even just
+        in the retrieval date, is a new row. All or nothing: if one row fails,
+        none is written.
 
         Args:
-            werte: Die anzuhängenden Werte.
-            ingested_at: Speicherzeitpunkt, Vorgabe „jetzt“. Nur für Tests.
+            values: The values to append.
+            ingested_at: Storage time, default "now". Tests only.
 
         Returns:
-            Zahl der neu geschriebenen Zeilen.
+            Number of newly written rows.
 
         Raises:
-            FeldwertValidationError: Wenn ein Element kein ``Feldwert`` ist.
+            FieldValueValidationError: If an element is not a ``FieldValue``.
         """
-        jetzt = (
+        now = (
             dt.datetime.now(dt.timezone.utc)
             if ingested_at is None
-            else _zeitpunkt("ingested_at", ingested_at)
+            else _timestamp("ingested_at", ingested_at)
         )
 
-        zeilen: list[Sequence[Any]] = []
-        for wert in werte:
-            if not isinstance(wert, Feldwert):
-                raise FeldwertValidationError(
-                    f"Erwartet wurde ein Feldwert, bekommen: {type(wert).__name__}. "
-                    "Rohe dicts werden nicht angenommen — sie umgehen die Eingangsprüfung."
+        rows: list[Sequence[Any]] = []
+        for value in values:
+            if not isinstance(value, FieldValue):
+                raise FieldValueValidationError(
+                    f"Expected a FieldValue, got: {type(value).__name__}. "
+                    "Raw dicts are not accepted — they bypass input validation."
                 )
-            zeilen.append(
+            rows.append(
                 (
-                    wert.isin,
-                    wert.feld,
-                    wert.periode,
-                    _als_text(wert.wert),
-                    wert.einheit,
-                    wert.quelle_url,
-                    wert.quelle_typ.value,
-                    wert.status.value,
-                    wert.stand,
-                    wert.abgerufen_am,
+                    value.isin,
+                    value.field,
+                    value.period,
+                    _as_text(value.value),
+                    value.unit,
+                    value.source_url,
+                    value.source_type.value,
+                    value.status.value,
+                    value.as_of,
+                    value.retrieved_at,
                 )
             )
 
-        geschrieben = 0
+        written = 0
         self._conn.begin()
         try:
-            for zeile in zeilen:
-                if self._conn.execute(_GLEICHE_ZEILE, zeile).fetchone():
+            for row in rows:
+                if self._conn.execute(_SAME_ROW, row).fetchone():
                     continue
-                self._conn.execute(_EINFUEGEN, [*zeile, jetzt])
-                geschrieben += 1
+                self._conn.execute(_INSERT, [*row, now])
+                written += 1
         except BaseException:
             self._conn.rollback()
             raise
         self._conn.commit()
-        return geschrieben
+        return written
 
     def view(self, as_of: dt.datetime) -> InstrumentView:
-        """Erzeugt die Sicht auf den Wissensstand zum Zeitpunkt ``as_of``."""
+        """Creates the view of the state of knowledge at time ``as_of``."""
         return InstrumentView(self._conn, as_of)
 
-    def zeilen_gesamt(self) -> int:
-        """Alle je geschriebenen Zeilen. Nur für Betrieb und Diagnose."""
-        return int(self._conn.execute("SELECT COUNT(*) FROM instrument_felder").fetchone()[0])
+    def total_rows(self) -> int:
+        """All rows ever written. For operations and diagnostics only."""
+        return int(self._conn.execute("SELECT COUNT(*) FROM instrument_fields").fetchone()[0])
 
-    def historie(self, isin: str, feld: str, periode: str = "") -> pd.DataFrame:
-        """Alle Fassungen eines Felds, in Schreibreihenfolge.
+    def history(self, isin: str, field: str, period: str = "") -> pd.DataFrame:
+        """All versions of a field, in write order.
 
-        Die Prüfspur: wann hat sich dieser Wert geändert, woher kam jede
-        Fassung? Für Betrieb und Fehlersuche, nicht für die Produktauswahl.
+        The audit trail: when did this value change, and where did each
+        version come from? For operations and debugging, not for product
+        selection.
         """
         return self._conn.execute(
             """
-            SELECT row_id, isin, feld, periode, wert, einheit, quelle_url, quelle_typ,
-                   status, stand, abgerufen_am, ingested_at
-            FROM instrument_felder
-            WHERE isin = ? AND feld = ? AND periode = ?
+            SELECT row_id, isin, field, period, value, unit, source_url, source_type,
+                   status, as_of, retrieved_at, ingested_at
+            FROM instrument_fields
+            WHERE isin = ? AND field = ? AND period = ?
             ORDER BY row_id
             """,
-            [isin, feld, periode],
+            [isin, field, period],
         ).df()
 
 
 # ---------------------------------------------------------------------------
-# Quelldatei
+# Source file
 # ---------------------------------------------------------------------------
 
-_DOKUMENT_SCHLUESSEL = frozenset(
-    {"isin", "quelle_typ", "quelle_url", "stand", "abgerufen_am", "status", "werte"}
+_DOCUMENT_KEYS = frozenset(
+    {"isin", "source_type", "source_url", "as_of", "retrieved_at", "status", "values"}
 )
 
 
-def lade_quelldatei(pfad: str | Path) -> list[Feldwert]:
-    """Liest die von Hand gepflegte Quelldatei (Format im Modul-Docstring).
+def load_source_file(path: str | Path) -> list[FieldValue]:
+    """Reads the hand-maintained source file (format in the module docstring).
 
-    Nur die lokale Datei, keine Netzverbindung. Zahlen werden als ``Decimal``
-    gelesen.
+    Only the local file, no network connection. Numbers are read as
+    ``Decimal``.
 
     Raises:
-        FeldwertValidationError: mit der Nummer des Dokuments in der Datei,
-            damit sich der Fehler finden lässt.
+        FieldValueValidationError: with the number of the document in the
+            file, so that the error can be found.
     """
-    daten = json.loads(Path(pfad).read_text(encoding="utf-8"), parse_float=Decimal)
-    if not isinstance(daten, dict) or set(daten) != {"dokumente"} or not isinstance(
-        daten["dokumente"], list
+    data = json.loads(Path(path).read_text(encoding="utf-8"), parse_float=Decimal)
+    if not isinstance(data, dict) or set(data) != {"documents"} or not isinstance(
+        data["documents"], list
     ):
-        raise FeldwertValidationError(
-            'Die Quelldatei braucht genau einen Schlüssel "dokumente" mit einer Liste.'
+        raise FieldValueValidationError(
+            'The source file needs exactly one key "documents" holding a list.'
         )
 
-    werte: list[Feldwert] = []
-    for nummer, dokument in enumerate(daten["dokumente"], start=1):
+    values: list[FieldValue] = []
+    for number, document in enumerate(data["documents"], start=1):
         try:
-            werte.extend(_werte_aus_dokument(dokument))
-        except (ValueError, TypeError) as fehler:  # FeldwertValidationError ist ein ValueError
-            raise FeldwertValidationError(f"Dokument {nummer}: {fehler}") from None
-    return werte
+            values.extend(_values_from_document(document))
+        except (ValueError, TypeError) as error:  # FieldValueValidationError is a ValueError
+            raise FieldValueValidationError(f"Document {number}: {error}") from None
+    return values
 
 
-def _werte_aus_dokument(dokument: object) -> list[Feldwert]:
-    if not isinstance(dokument, dict):
-        raise FeldwertValidationError("Eintrag ist kein Objekt")
-    if set(dokument) != _DOKUMENT_SCHLUESSEL:
-        raise FeldwertValidationError(
-            f"Schlüssel fehlen: {sorted(_DOKUMENT_SCHLUESSEL - set(dokument))}; "
-            f"unbekannt: {sorted(set(dokument) - _DOKUMENT_SCHLUESSEL)}"
+def _values_from_document(document: object) -> list[FieldValue]:
+    if not isinstance(document, dict):
+        raise FieldValueValidationError("Entry is not an object")
+    if set(document) != _DOCUMENT_KEYS:
+        raise FieldValueValidationError(
+            f"Keys missing: {sorted(_DOCUMENT_KEYS - set(document))}; "
+            f"unknown: {sorted(set(document) - _DOCUMENT_KEYS)}"
         )
-    if not isinstance(dokument["werte"], dict):
-        raise FeldwertValidationError('"werte" ist kein Objekt')
+    if not isinstance(document["values"], dict):
+        raise FieldValueValidationError('"values" is not an object')
 
-    herkunft = {
-        "isin": dokument["isin"],
-        "quelle_typ": dokument["quelle_typ"],
-        "quelle_url": dokument["quelle_url"],
-        "stand": dokument["stand"],
-        "status": dokument["status"],
-        "abgerufen_am": dt.datetime.fromisoformat(dokument["abgerufen_am"]),
+    provenance = {
+        "isin": document["isin"],
+        "source_type": document["source_type"],
+        "source_url": document["source_url"],
+        "as_of": document["as_of"],
+        "status": document["status"],
+        "retrieved_at": dt.datetime.fromisoformat(document["retrieved_at"]),
     }
-    werte: list[Feldwert] = []
-    for feld, wert in dokument["werte"].items():
-        if not _feldtyp(feld).je_jahr:
-            werte.append(Feldwert(feld=feld, wert=wert, **herkunft))
+    values: list[FieldValue] = []
+    for field, value in document["values"].items():
+        if not _field_type(field).per_year:
+            values.append(FieldValue(field=field, value=value, **provenance))
             continue
-        if not isinstance(wert, dict):
-            raise FeldwertValidationError(
-                f'{feld} ist ein Jahreswert: erwartet {{"2025": …}}, bekommen {wert!r}'
+        if not isinstance(value, dict):
+            raise FieldValueValidationError(
+                f'{field} is an annual value: expected {{"2025": …}}, got {value!r}'
             )
-        werte += [Feldwert(feld=feld, wert=w, periode=p, **herkunft) for p, w in wert.items()]
-    return werte
+        values += [
+            FieldValue(field=field, value=v, period=p, **provenance) for p, v in value.items()
+        ]
+    return values

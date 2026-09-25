@@ -1,6 +1,6 @@
-"""Datenquellen-Adapter.
+"""Data source adapters.
 
-Jede Quelle liefert geprüfte ``Bar``-Objekte oder, bei ``dokumente``, eine
-abgelegte PDF-Datei. Rohe dicts verlassen ein Adapter-Modul nicht — sonst wandert die Eingangsprüfung an den Aufrufer,
-und dort wird sie vergessen.
+Every source returns validated ``Bar`` objects or, for ``documents``, a
+stored PDF file. Raw dicts never leave an adapter module — otherwise input
+validation moves to the caller, and there it gets forgotten.
 """

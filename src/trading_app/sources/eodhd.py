@@ -1,32 +1,34 @@
-"""Adapter für EODHD — Tagesdaten, Splits, Dividenden.
+"""Adapter for EODHD — daily data, splits, dividends.
 
-Der Free-Plan hat zwei Eigenheiten, die beide still zu falschen Ergebnissen
-führen, wenn man sie nicht abfängt:
+The free plan has two quirks, both of which silently lead to wrong results if
+they are not caught:
 
-**1. Stille Kürzung auf zwölf Monate.** Eine Anfrage ab Januar 2015 kommt mit
-Daten ab September 2025 zurück — HTTP 200, keine Fehlermeldung. Der einzige
-Hinweis steckt in einem ``warning``-Feld an jeder einzelnen Bar:
+**1. Silent truncation to twelve months.** A request from January 2015 comes
+back with data from September 2025 — HTTP 200, no error message. The only
+hint is in a ``warning`` field on every single bar:
 
     "Data is limited by one year as you have free subscription"
 
-Wer das nicht liest, hält einen Zehn-Jahres-Backtest für gültig, der auf zwölf
-Monaten steht. Deshalb bricht ``EodhdClient`` bei diesem Feld **hart ab**,
-statt zu warnen. Eine Warnung im Log übersieht man; eine Ausnahme nicht.
+Whoever does not read it takes a ten-year backtest for valid that rests on
+twelve months. That is why ``EodhdClient`` **aborts hard** on this field
+instead of warning. A warning in the log gets overlooked; an exception does
+not.
 
-**2. Kein Intraday.** ``/api/intraday`` antwortet mit HTTP 403, „Only EOD data
-allowed for free users". Der Client meldet das als eigene Ausnahme mit dem
-Hinweis auf den Abo-Pfad, statt einen nackten HTTP-Fehler durchzureichen.
+**2. No intraday.** ``/api/intraday`` answers with HTTP 403, "Only EOD data
+allowed for free users". The client reports this as an exception of its own
+with a pointer to the subscription path, instead of passing on a bare HTTP
+error.
 
-Zum ``available_at``-Feld: EODHD liefert Tagesdaten nach Börsenschluss, sagt
-aber nicht, wann genau. Der Client setzt ``available_at`` deshalb bewusst
-konservativ auf Börsenschluss plus einen Puffer (Vorgabe: 1 Stunde). Zu spät
-anzusetzen kostet Signalqualität; zu früh erzeugt Look-ahead. Im Zweifel zu
-spät — ein zu vorsichtiger Backtest ist unangenehm, ein zu optimistischer
-ist wertlos.
+On the ``available_at`` field: EODHD delivers daily data after market close
+but does not say exactly when. The client therefore deliberately sets
+``available_at`` conservatively to market close plus a buffer (default:
+1 hour). Setting it too late costs signal quality; too early creates
+look-ahead. When in doubt, too late — an overly cautious backtest is
+unpleasant, an overly optimistic one is worthless.
 
-Der Token kommt ausschließlich aus der Umgebung (``EODHD_API_TOKEN``),
-niemals aus dem Code. Er liegt in ``~/claude-local/trading-app/.env``,
-außerhalb von Git und iCloud.
+The token comes exclusively from the environment (``EODHD_API_TOKEN``), never
+from the code. It lives in ``~/claude-local/trading-app/.env``, outside Git
+and iCloud.
 """
 
 from __future__ import annotations
@@ -44,41 +46,42 @@ from trading_app.bitemporal import Bar
 __all__ = [
     "EodhdClient",
     "EodhdError",
-    "FreiPlanGrenzeError",
-    "IntradayNichtVerfuegbarError",
+    "FreePlanLimitError",
+    "IntradayUnavailableError",
 ]
 
 UTC = dt.timezone.utc
-_BASIS_URL = "https://eodhd.com/api"
+_BASE_URL = "https://eodhd.com/api"
 
-# Der Text, mit dem EODHD die stille Kürzung ankündigt.
-_WARNUNG_JAHRESGRENZE = "limited by one year"
+# The text with which EODHD announces the silent truncation.
+_ONE_YEAR_LIMIT_WARNING = "limited by one year"
 
 
 class EodhdError(RuntimeError):
-    """Oberklasse aller EODHD-Fehler."""
+    """Base class of all EODHD errors."""
 
 
-class FreiPlanGrenzeError(EodhdError):
-    """Die Antwort war still gekürzt.
+class FreePlanLimitError(EodhdError):
+    """The response was silently truncated.
 
-    Ein eigener Typ, damit ein Aufrufer gezielt darauf reagieren kann —
-    etwa das Ladefenster verkleinern — ohne echte Netzfehler mitzufangen.
+    A type of its own, so that a caller can react to it specifically — for
+    instance by shrinking the load window — without catching real network
+    errors too.
     """
 
 
-class IntradayNichtVerfuegbarError(EodhdError):
-    """Intraday ist im Free-Plan gesperrt (HTTP 403)."""
+class IntradayUnavailableError(EodhdError):
+    """Intraday is blocked on the free plan (HTTP 403)."""
 
 
 class EodhdClient:
-    """Dünner Adapter über die EODHD-REST-API.
+    """Thin adapter over the EODHD REST API.
 
-    Beispiel:
-        >>> client = EodhdClient()                     # Token aus der Umgebung
-        >>> bars = client.tagesbars("AAPL.US",
-        ...                         start=date(2026, 1, 1),
-        ...                         end=date(2026, 3, 1))
+    Example:
+        >>> client = EodhdClient()                     # token from the environment
+        >>> bars = client.daily_bars("AAPL.US",
+        ...                          start=date(2026, 1, 1),
+        ...                          end=date(2026, 3, 1))
         >>> store.append(bars)
     """
 
@@ -87,181 +90,181 @@ class EodhdClient:
         token: str | None = None,
         *,
         timeout: float = 30.0,
-        verfuegbarkeits_puffer: dt.timedelta = dt.timedelta(hours=1),
+        availability_buffer: dt.timedelta = dt.timedelta(hours=1),
     ) -> None:
         """
         Args:
-            token: API-Token. Vorgabe: ``EODHD_API_TOKEN`` aus der Umgebung.
-            timeout: Zeitlimit je Anfrage in Sekunden.
-            verfuegbarkeits_puffer: Aufschlag auf den Börsenschluss für
-                ``available_at``. Lieber zu groß als zu klein.
+            token: API token. Default: ``EODHD_API_TOKEN`` from the environment.
+            timeout: Time limit per request in seconds.
+            availability_buffer: Added to market close for ``available_at``.
+                Better too large than too small.
 
         Raises:
-            EodhdError: Wenn kein Token zu finden ist.
+            EodhdError: If no token can be found.
         """
         self._token = token or os.environ.get("EODHD_API_TOKEN")
         if not self._token:
             raise EodhdError(
-                "Kein API-Token. Entweder EODHD_API_TOKEN setzen oder token= übergeben.\n"
-                "Laden mit: set -a && . ~/claude-local/trading-app/.env && set +a"
+                "No API token. Either set EODHD_API_TOKEN or pass token=.\n"
+                "Load it with: set -a && . ~/claude-local/trading-app/.env && set +a"
             )
         self._timeout = timeout
-        self._puffer = verfuegbarkeits_puffer
+        self._buffer = availability_buffer
 
-    # -- Netzwerk ---------------------------------------------------------
+    # -- Network ----------------------------------------------------------
 
-    def _hole(self, pfad: str, **parameter: Any) -> Any:
-        """Führt eine Anfrage aus und gibt die JSON-Antwort zurück.
+    def _fetch(self, path: str, **params: Any) -> Any:
+        """Performs a request and returns the JSON response.
 
         Raises:
-            IntradayNichtVerfuegbarError: Bei HTTP 403 auf Intraday.
-            EodhdError: Bei allen anderen HTTP- und Netzfehlern.
+            IntradayUnavailableError: On HTTP 403 for intraday.
+            EodhdError: On all other HTTP and network errors.
         """
-        parameter = {"api_token": self._token, "fmt": "json", **parameter}
-        url = f"{_BASIS_URL}/{pfad}?{urllib.parse.urlencode(parameter)}"
+        params = {"api_token": self._token, "fmt": "json", **params}
+        url = f"{_BASE_URL}/{path}?{urllib.parse.urlencode(params)}"
 
         try:
-            with urllib.request.urlopen(url, timeout=self._timeout) as antwort:
-                rohdaten = antwort.read().decode("utf-8")
-        except urllib.error.HTTPError as fehler:
-            körper = fehler.read().decode("utf-8", errors="replace")[:200]
-            if fehler.code == 403:
-                raise IntradayNichtVerfuegbarError(
-                    f"EODHD verweigert den Zugriff (HTTP 403): {körper}\n"
-                    "Im Free-Plan sind nur EOD-Daten freigeschaltet. Intraday "
-                    "erfordert ein Abo (~15 €/Monat mit Studentenrabatt) — und "
-                    "dann zusätzlich ein eigenes Modul für die Split-Anpassung, "
-                    "weil EODHD Intraday-Bars nicht rückwirkend bereinigt. "
-                    "Siehe docs/20260925_rueckwirkende-anpassung.md."
-                ) from fehler
-            if fehler.code == 429:
+            with urllib.request.urlopen(url, timeout=self._timeout) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as error:
+            body = error.read().decode("utf-8", errors="replace")[:200]
+            if error.code == 403:
+                raise IntradayUnavailableError(
+                    f"EODHD refuses access (HTTP 403): {body}\n"
+                    "The free plan only unlocks EOD data. Intraday "
+                    "requires a subscription (~15 €/month with student discount) — and "
+                    "then additionally a module of its own for split adjustment, "
+                    "because EODHD does not adjust intraday bars retroactively. "
+                    "See docs/20260925_rueckwirkende-anpassung.md."
+                ) from error
+            if error.code == 429:
                 raise EodhdError(
-                    f"Tageslimit erschöpft (HTTP 429): {körper}\n"
-                    "Der Free-Plan erlaubt 20 Aufrufe pro Tag."
-                ) from fehler
-            # Token nie in die Meldung — die landet im Log.
-            raise EodhdError(f"HTTP {fehler.code} bei /{pfad}: {körper}") from fehler
-        except urllib.error.URLError as fehler:
-            raise EodhdError(f"Netzwerkfehler bei /{pfad}: {fehler.reason}") from fehler
+                    f"Daily limit exhausted (HTTP 429): {body}\n"
+                    "The free plan allows 20 calls per day."
+                ) from error
+            # Never the token in the message — it ends up in the log.
+            raise EodhdError(f"HTTP {error.code} for /{path}: {body}") from error
+        except urllib.error.URLError as error:
+            raise EodhdError(f"Network error for /{path}: {error.reason}") from error
 
         try:
-            return json.loads(rohdaten)
-        except json.JSONDecodeError as fehler:
-            raise EodhdError(f"Antwort war kein gültiges JSON: {rohdaten[:200]}") from fehler
+            return json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise EodhdError(f"Response was not valid JSON: {raw[:200]}") from error
 
     @staticmethod
-    def _pruefe_jahresgrenze(zeilen: list[dict[str, Any]], symbol: str) -> None:
-        """Bricht ab, wenn EODHD die Antwort still gekürzt hat.
+    def _check_one_year_limit(rows: list[dict[str, Any]], symbol: str) -> None:
+        """Aborts if EODHD silently truncated the response.
 
-        Absichtlich eine Ausnahme statt einer Log-Warnung: Die Kürzung ist
-        genau die Sorte Fehler, die monatelang unbemerkt bleibt und jede
-        darauf gebaute Auswertung entwertet.
+        Deliberately an exception instead of a log warning: the truncation is
+        exactly the kind of error that stays unnoticed for months and devalues
+        every analysis built on it.
         """
-        for zeile in zeilen:
-            warnung = zeile.get("warning")
-            if warnung and _WARNUNG_JAHRESGRENZE in str(warnung).lower():
-                raise FreiPlanGrenzeError(
-                    f"EODHD hat die Antwort für {symbol} still gekürzt.\n"
-                    f"Meldung des Anbieters: {warnung!r}\n"
-                    "Der Free-Plan liefert maximal zwölf Monate — die Anfrage kam "
-                    "mit HTTP 200 zurück, aber mit weniger Daten als verlangt. "
-                    "Entweder das Ladefenster auf zwölf Monate verkleinern oder "
-                    "die Historie aus einer anderen Quelle holen."
+        for row in rows:
+            warning = row.get("warning")
+            if warning and _ONE_YEAR_LIMIT_WARNING in str(warning).lower():
+                raise FreePlanLimitError(
+                    f"EODHD silently truncated the response for {symbol}.\n"
+                    f"Provider message: {warning!r}\n"
+                    "The free plan returns at most twelve months — the request came "
+                    "back with HTTP 200, but with less data than requested. "
+                    "Either shrink the load window to twelve months or "
+                    "get the history from another source."
                 )
 
-    # -- Tagesbars --------------------------------------------------------
+    # -- Daily bars -------------------------------------------------------
 
-    def tagesbars(
+    def daily_bars(
         self,
         symbol: str,
         start: dt.date,
         end: dt.date,
         *,
-        boersenschluss: dt.time = dt.time(22, 0),
+        market_close: dt.time = dt.time(22, 0),
     ) -> list[Bar]:
-        """Lädt Tagesbars und gibt sie als geprüfte ``Bar``-Objekte zurück.
+        """Loads daily bars and returns them as validated ``Bar`` objects.
 
         Args:
-            symbol: EODHD-Kürzel, z. B. ``AAPL.US`` oder ``SAP.XETRA``.
-            start: Erster Handelstag (einschließlich).
-            end: Letzter Handelstag (einschließlich).
-            boersenschluss: Schlusszeit in UTC. Vorgabe 22:00 ≈ US-Schluss.
-                Für Xetra 16:30 UTC setzen.
+            symbol: EODHD ticker, e.g. ``AAPL.US`` or ``SAP.XETRA``.
+            start: First trading day (inclusive).
+            end: Last trading day (inclusive).
+            market_close: Closing time in UTC. Default 22:00 ≈ US close.
+                For Xetra set 16:30 UTC.
 
         Returns:
-            Bars nach ``event_time`` aufsteigend, mit ``adjusted_close``.
+            Bars by ``event_time`` ascending, with ``adjusted_close``.
 
         Raises:
-            FreiPlanGrenzeError: Wenn die Antwort still gekürzt war.
-            EodhdError: Bei HTTP- oder Netzfehlern.
+            FreePlanLimitError: If the response was silently truncated.
+            EodhdError: On HTTP or network errors.
         """
         if start > end:
-            raise ValueError(f"start ({start}) liegt nach end ({end})")
+            raise ValueError(f"start ({start}) is after end ({end})")
 
-        zeilen = self._hole(
+        rows = self._fetch(
             f"eod/{symbol}",
             **{"from": start.isoformat(), "to": end.isoformat()},
         )
-        if not isinstance(zeilen, list):
-            raise EodhdError(f"Unerwartete Antwortform für {symbol}: {type(zeilen).__name__}")
+        if not isinstance(rows, list):
+            raise EodhdError(f"Unexpected response shape for {symbol}: {type(rows).__name__}")
 
-        self._pruefe_jahresgrenze(zeilen, symbol)
+        self._check_one_year_limit(rows, symbol)
 
         bars: list[Bar] = []
-        for zeile in zeilen:
-            tag = dt.date.fromisoformat(zeile["date"])
-            ereignis = dt.datetime.combine(tag, boersenschluss, tzinfo=UTC)
+        for row in rows:
+            day = dt.date.fromisoformat(row["date"])
+            event = dt.datetime.combine(day, market_close, tzinfo=UTC)
             bars.append(
                 Bar(
                     symbol=symbol,
                     bar_size="1d",
-                    event_time=ereignis,
-                    available_at=ereignis + self._puffer,
-                    open=float(zeile["open"]),
-                    high=float(zeile["high"]),
-                    low=float(zeile["low"]),
-                    close=float(zeile["close"]),
+                    event_time=event,
+                    available_at=event + self._buffer,
+                    open=float(row["open"]),
+                    high=float(row["high"]),
+                    low=float(row["low"]),
+                    close=float(row["close"]),
                     adjusted_close=(
-                        float(zeile["adjusted_close"])
-                        if zeile.get("adjusted_close") is not None
+                        float(row["adjusted_close"])
+                        if row.get("adjusted_close") is not None
                         else None
                     ),
-                    volume=float(zeile.get("volume") or 0.0),
+                    volume=float(row.get("volume") or 0.0),
                     source="eodhd",
                 )
             )
         bars.sort(key=lambda b: b.event_time)
         return bars
 
-    # -- Splits und Dividenden -------------------------------------------
+    # -- Splits and dividends ---------------------------------------------
 
     def splits(self, symbol: str, start: dt.date, end: dt.date) -> list[dict[str, Any]]:
-        """Split-Historie als Liste von ``{date, split}``.
+        """Split history as a list of ``{date, split}``.
 
-        ``split`` steht als Text da, etwa ``"4.000000/1.000000"`` für den
-        AAPL-Split vom 31.08.2020.
+        ``split`` is given as text, e.g. ``"4.000000/1.000000"`` for the AAPL
+        split of 31 August 2020.
         """
-        zeilen = self._hole(
+        rows = self._fetch(
             f"splits/{symbol}",
             **{"from": start.isoformat(), "to": end.isoformat()},
         )
-        return zeilen if isinstance(zeilen, list) else []
+        return rows if isinstance(rows, list) else []
 
-    def dividenden(self, symbol: str, start: dt.date, end: dt.date) -> list[dict[str, Any]]:
-        """Dividendenhistorie, einschließlich ``declarationDate``.
+    def dividends(self, symbol: str, start: dt.date, end: dt.date) -> list[dict[str, Any]]:
+        """Dividend history, including ``declarationDate``.
 
-        Der Grund, warum EODHD trotz Free-Plan im Projekt bleibt: Das
-        Ankündigungsdatum ist der korrekte ``available_at``-Zeitpunkt für
-        jedes Dividendensignal. ``yfinance`` liefert es nicht, und ohne das
-        Feld wird aus einer Dividendenstrategie unbemerkt Hellseherei.
+        The reason EODHD stays in the project despite the free plan: the
+        declaration date is the correct ``available_at`` time for any dividend
+        signal. ``yfinance`` does not provide it, and without the field a
+        dividend strategy silently turns into clairvoyance.
         """
-        zeilen = self._hole(
+        rows = self._fetch(
             f"div/{symbol}",
             **{"from": start.isoformat(), "to": end.isoformat()},
         )
-        return zeilen if isinstance(zeilen, list) else []
+        return rows if isinstance(rows, list) else []
 
-    def kontostand(self) -> dict[str, Any]:
-        """Plan und Restkontingent. Kostet selbst einen Aufruf."""
-        antwort = self._hole("user")
-        return antwort if isinstance(antwort, dict) else {}
+    def account_status(self) -> dict[str, Any]:
+        """Plan and remaining quota. Costs a call itself."""
+        response = self._fetch("user")
+        return response if isinstance(response, dict) else {}

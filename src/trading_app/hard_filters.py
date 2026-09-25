@@ -1,27 +1,27 @@
-"""Harte Filter der Produktauswahl (Anlage-Spezifikation A5.2, Auswertung v1.3).
+"""Hard filters of product selection (investment spec A5.2, evaluation v1.3).
 
-„Ja/nein je Baustein“ — mit einem dritten Ausgang. Jede Prüfung endet mit
-``erfüllt``, ``verletzt`` oder ``offen``:
+"Yes/no per building block" — with a third outcome. Every check ends as
+``fulfilled``, ``violated`` or ``open``:
 
-- **offen**, wenn der Wert zum Stichtag fehlt oder UNVERIFIZIERT ist. Ein
-  Wert aus zweiter Hand lässt einen Filter nie bestehen — auch dann nicht,
-  wenn er ihn bestehen *würde*. Er schließt aber auch nicht endgültig aus.
-- **zulässig** ist ein Produkt nur ohne verletzte und ohne offene Prüfung.
+- **open** if the value is missing at the cut-off date or is UNVERIFIED. A
+  second-hand value never lets a filter pass — not even if it *would* pass
+  it. But it does not exclude for good either.
+- A product is **eligible** only with no violated and no open check.
 
-Warum ein Ergebnis und keine Ausnahme: Eine Ausnahme ließe einen einzigen
-ungeprüften Wert die Auswertung aller dreißig Kandidaten abbrechen, und wer
-sie mit ``try/except`` umgeht, lässt genau das durch, was sie aufhalten
-sollte. Warum keine bloße Warnung: Eine Warnung neben einem „bestanden“ wird
-übersehen, und dann steht ein Produkt auf Grundlage einer Zahl aus zweiter
-Hand in der Empfehlung. Der Ausgang ``offen`` ist beides zugleich: Das
-Produkt ist nicht zulässig, und die Begründung sagt, welcher Wert am
-Primärdokument zu prüfen ist.
+Why a result and not an exception: an exception would let a single
+unchecked value abort the evaluation of all thirty candidates, and whoever
+works around it with ``try/except`` lets through exactly what it was meant
+to stop. Why not a mere warning: a warning next to a "passed" gets
+overlooked, and then a product ends up in the recommendation on the basis of
+a second-hand number. The ``open`` verdict is both at once: the product is
+not eligible, and the reason says which value is to be checked against the
+primary document.
 
-Nicht hier: die Bewertung A5.3, die Indexwahl A5.4, der Produktwechsel A5.6
-und Filter 7 (sparplanfähig beim Broker — Nutzerdaten, keine Stammdaten).
+Not here: scoring A5.3, index choice A5.4, product switch A5.6 and filter 7
+(savings-plan-eligible at the broker — user data, not master data).
 
-Alle Werte kommen aus einer ``InstrumentView``; ihr Stichtag ist auch der
-Stichtag für die Historie (Filter 4).
+All values come from an ``InstrumentView``; its cut-off date is also the
+cut-off date for the history (filter 4).
 """
 
 from __future__ import annotations
@@ -33,237 +33,239 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
-from trading_app.stammdaten import Feldwert, InstrumentView, Pruefstatus
+from trading_app.instruments import FieldValue, InstrumentView, VerificationStatus
 
 __all__ = [
-    "Ausgang",
-    "Baustein",
-    "Filterbefund",
-    "Pruefung",
-    "pruefe_harte_filter",
-    "volle_kalenderjahre",
+    "BuildingBlock",
+    "Check",
+    "FilterResult",
+    "Verdict",
+    "check_hard_filters",
+    "full_calendar_years",
 ]
 
 
-class Baustein(StrEnum):
-    """Die Bausteine aus A5.5."""
+class BuildingBlock(StrEnum):
+    """The building blocks from A5.5."""
 
-    K1 = "K1 Aktien Welt"
-    K2_GELDMARKT = "K2 Geldmarkt"
-    K2_EUR_STAATSANLEIHEN = "K2 EUR-Staatsanleihen"
-    K2_GLOBALE_ANLEIHEN = "K2 Globale Anleihen"
+    K1 = "K1 Global equities"
+    K2_MONEY_MARKET = "K2 Money market"
+    K2_EUR_GOVERNMENT_BONDS = "K2 EUR government bonds"
+    K2_GLOBAL_BONDS = "K2 Global bonds"
     S_GOLD = "S-Gold"
-    S_FAKTOR = "S-Faktor"
+    S_FACTOR = "S-Factor"
 
 
-class Ausgang(StrEnum):
-    ERFUELLT = "erfüllt"
-    VERLETZT = "verletzt"
-    OFFEN = "offen"
+class Verdict(StrEnum):
+    FULFILLED = "fulfilled"
+    VIOLATED = "violated"
+    OPEN = "open"
 
 
-# A5.2 Nr. 3: 100 Mio. € VERIFIZIERT (Lipper 2025); 500 Mio. € für K1 und
-# Geldmarkt ENTSCHEIDUNG (eine Schließung realisiert Gewinne).
-MINDESTVOLUMEN = Decimal("100000000")
-MINDESTVOLUMEN_GROSS = Decimal("500000000")
-_GROSSE_BAUSTEINE = frozenset({Baustein.K1, Baustein.K2_GELDMARKT})
+# A5.2 no. 3: 100m € VERIFIZIERT (Lipper 2025); 500m € for K1 and money
+# market ENTSCHEIDUNG (a fund closure realises gains).
+MIN_FUND_SIZE = Decimal("100000000")
+MIN_FUND_SIZE_LARGE = Decimal("500000000")
+_LARGE_BLOCKS = frozenset({BuildingBlock.K1, BuildingBlock.K2_MONEY_MARKET})
 
-# A5.2 Nr. 4.
-MINDEST_KALENDERJAHRE = 3
+# A5.2 no. 4.
+MIN_CALENDAR_YEARS = 3
 
-# A5.2 Nr. 2 nach A5.5, nur wo A5.5 konkrete Indizes nennt (v1.3). Schreibweise
-# exakt wie in A5.5 — so muss index_name in der Quelldatei stehen.
-_INDIZES_A5_5 = {
-    Baustein.K1: frozenset({"MSCI ACWI", "MSCI ACWI IMI", "FTSE All-World"}),
-    Baustein.K2_GELDMARKT: frozenset({"€STR"}),
+# A5.2 no. 2 per A5.5, only where A5.5 names concrete indices (v1.3). Spelling
+# exactly as in A5.5 — this is how index_name must appear in the source file.
+_INDICES_A5_5 = {
+    BuildingBlock.K1: frozenset({"MSCI ACWI", "MSCI ACWI IMI", "FTSE All-World"}),
+    BuildingBlock.K2_MONEY_MARKET: frozenset({"€STR"}),
 }
 
-_AKTIEN_BAUSTEINE = frozenset({Baustein.K1, Baustein.S_FAKTOR})  # Nr. 5
-_FREMDWAEHRUNGS_ANLEIHEN = frozenset({Baustein.K2_GLOBALE_ANLEIHEN})  # Nr. 6
+_EQUITY_BLOCKS = frozenset({BuildingBlock.K1, BuildingBlock.S_FACTOR})  # no. 5
+_FOREIGN_CURRENCY_BONDS = frozenset({BuildingBlock.K2_GLOBAL_BONDS})  # no. 6
 
 
 @dataclass(frozen=True, slots=True)
-class Pruefung:
-    """Eine einzelne Prüfung; ``nummer`` ist die Nummer in A5.2."""
+class Check:
+    """A single check; ``number`` is the number in A5.2."""
 
-    nummer: int
+    number: int
     name: str
-    ausgang: Ausgang
-    begruendung: str
+    verdict: Verdict
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)
-class Filterbefund:
-    """Alle Prüfungen eines Instruments für einen Baustein zu einem Stichtag.
+class FilterResult:
+    """All checks of one instrument for one building block at one cut-off date.
 
-    Attribute:
-        neu: Weniger als drei volle Kalenderjahre (Filter 4). Kein Ausschluss,
-            sondern eine Kennzeichnung für die Bewertung A5.3.
+    Attributes:
+        new: Fewer than three full calendar years (filter 4). Not an
+            exclusion but a label for scoring A5.3.
     """
 
     isin: str
-    baustein: Baustein
-    stichtag: dt.datetime
-    pruefungen: tuple[Pruefung, ...]
-    neu: bool
+    building_block: BuildingBlock
+    as_of: dt.datetime
+    checks: tuple[Check, ...]
+    new: bool
 
     @property
-    def ausgang(self) -> Ausgang:
-        """Verletzt vor offen vor erfüllt."""
-        ausgaenge = {pruefung.ausgang for pruefung in self.pruefungen}
-        for schwerster in (Ausgang.VERLETZT, Ausgang.OFFEN):
-            if schwerster in ausgaenge:
-                return schwerster
-        return Ausgang.ERFUELLT
+    def verdict(self) -> Verdict:
+        """Violated before open before fulfilled."""
+        verdicts = {check.verdict for check in self.checks}
+        for worst in (Verdict.VIOLATED, Verdict.OPEN):
+            if worst in verdicts:
+                return worst
+        return Verdict.FULFILLED
 
     @property
-    def zulaessig(self) -> bool:
-        return self.ausgang is Ausgang.ERFUELLT
+    def eligible(self) -> bool:
+        return self.verdict is Verdict.FULFILLED
 
 
-def volle_kalenderjahre(auflagedatum: dt.date, stichtag: dt.date) -> int:
-    """Kalenderjahre, die ganz zwischen Auflage und Stichtag liegen (A5.2 Nr. 4, v1.3).
+def full_calendar_years(inception_date: dt.date, cutoff: dt.date) -> int:
+    """Calendar years lying entirely between inception and cut-off (A5.2 no. 4, v1.3).
 
-    Das laufende Jahr zählt nie, das Auflagejahr nur bei Auflage am 1. Januar.
-    Kalenderjahre, weil A5.3 die Tracking-Differenz je Kalenderjahr mittelt:
-    drei volle Jahre heißt drei Jahreswerte.
+    The current year never counts, the inception year only for an inception
+    on 1 January. Calendar years, because A5.3 averages the tracking
+    difference per calendar year: three full years means three annual values.
     """
-    erstes = auflagedatum.year + (0 if (auflagedatum.month, auflagedatum.day) == (1, 1) else 1)
-    return max(0, stichtag.year - erstes)
+    first = inception_date.year + (
+        0 if (inception_date.month, inception_date.day) == (1, 1) else 1
+    )
+    return max(0, cutoff.year - first)
 
 
-def pruefe_harte_filter(sicht: InstrumentView, isin: str, baustein: Baustein) -> Filterbefund:
-    """Prüft A5.2 Nr. 1–6 für ein Instrument als Kandidat für einen Baustein.
+def check_hard_filters(view: InstrumentView, isin: str, block: BuildingBlock) -> FilterResult:
+    """Checks A5.2 nos. 1–6 for an instrument as a candidate for a building block.
 
     Args:
-        sicht: Stammdaten zum Stichtag.
-        isin: Das Instrument.
-        baustein: Für welchen Baustein es geprüft wird — die Filter hängen
-            davon ab (Volumenschwelle, Index, Aktienfonds, Währungssicherung).
+        view: Master data at the cut-off date.
+        isin: The instrument.
+        block: The building block it is checked for — the filters depend on
+            it (size threshold, index, equity fund, currency hedging).
 
     Returns:
-        Den Befund mit jeder Einzelprüfung und ihrer Begründung.
+        The result with every single check and its reason.
     """
-    baustein = Baustein(baustein)
-    pruefungen: list[Pruefung] = []
+    block = BuildingBlock(block)
+    checks: list[Check] = []
 
-    # Nr. 1
-    if baustein is Baustein.S_GOLD:
-        pruefungen.append(
-            _pruefe(sicht, isin, 1, "ETC mit Lieferanspruch", "gold_etc_lieferanspruch", _ja)
+    # No. 1
+    if block is BuildingBlock.S_GOLD:
+        checks.append(
+            _check(view, isin, 1, "ETC with delivery claim", "gold_etc_delivery_claim", _yes)
         )
     else:
-        pruefungen.append(_pruefe(sicht, isin, 1, "UCITS", "ucits", _ja))
-    # Nicht an Xetra ist kein Ausschluss: A5.2 lässt jeden deutschen
-    # Handelsplatz zu, der aber nicht als Feld erfasst ist → von Hand prüfen.
-    pruefungen.append(
-        _pruefe(sicht, isin, 1, "Xetra", "xetra_handelbar", _ja, sonst=Ausgang.OFFEN)
+        checks.append(_check(view, isin, 1, "UCITS", "ucits", _yes))
+    # Not on Xetra is no exclusion: A5.2 permits any German trading venue,
+    # which however is not recorded as a field → check by hand.
+    checks.append(
+        _check(view, isin, 1, "Xetra", "xetra_tradable", _yes, otherwise=Verdict.OPEN)
     )
-    pruefungen.append(_pruefe(sicht, isin, 1, "KID auf Deutsch", "kid_sprache_de", _ja))
+    checks.append(_check(view, isin, 1, "KID in German", "kid_language_de", _yes))
 
-    # Nr. 2
-    indizes = _INDIZES_A5_5.get(baustein)
-    if indizes is None:
-        pruefungen.append(
-            Pruefung(
+    # No. 2
+    indices = _INDICES_A5_5.get(block)
+    if indices is None:
+        checks.append(
+            Check(
                 2,
                 "Index",
-                Ausgang.OFFEN,
-                f"A5.5 nennt für {baustein} nur eine Indexfamilie; von Hand prüfen, "
-                "bis A5.5 konkrete Indizes nennt",
+                Verdict.OPEN,
+                f"A5.5 names only an index family for {block}; check by hand "
+                "until A5.5 names concrete indices",
             )
         )
     else:
-        pruefungen.append(
-            _pruefe(
-                sicht, isin, 2, "Index", "index_name", indizes.__contains__,
-                regel=f"einer von {sorted(indizes)}",
+        checks.append(
+            _check(
+                view, isin, 2, "Index", "index_name", indices.__contains__,
+                rule=f"one of {sorted(indices)}",
             )
         )
 
-    # Nr. 3
-    schwelle = MINDESTVOLUMEN_GROSS if baustein in _GROSSE_BAUSTEINE else MINDESTVOLUMEN
-    pruefungen.append(
-        _pruefe(
-            sicht, isin, 3, "Fondsvolumen", "fondsvolumen", lambda wert: wert >= schwelle,
-            regel=f"≥ {schwelle} EUR",
+    # No. 3
+    threshold = MIN_FUND_SIZE_LARGE if block in _LARGE_BLOCKS else MIN_FUND_SIZE
+    checks.append(
+        _check(
+            view, isin, 3, "Fund size", "fund_size", lambda value: value >= threshold,
+            rule=f"≥ {threshold} EUR",
         )
     )
 
-    # Nr. 4
-    historie, neu = _pruefe_historie(sicht, isin)
-    pruefungen.append(historie)
+    # No. 4
+    history, new = _check_history(view, isin)
+    checks.append(history)
 
-    # Nr. 5
-    if baustein in _AKTIEN_BAUSTEINE:
-        pruefungen.append(
-            _pruefe(sicht, isin, 5, "Aktienfonds (§ 2 Abs. 6 InvStG)", "aktienfonds_invstg", _ja)
+    # No. 5
+    if block in _EQUITY_BLOCKS:
+        checks.append(
+            _check(view, isin, 5, "Equity fund (§ 2 Abs. 6 InvStG)", "equity_fund_invstg", _yes)
         )
 
-    # Nr. 6
-    if baustein in _FREMDWAEHRUNGS_ANLEIHEN:
-        pruefungen.append(_pruefe(sicht, isin, 6, "EUR-abgesichert", "waehrungsgesichert", _ja))
+    # No. 6
+    if block in _FOREIGN_CURRENCY_BONDS:
+        checks.append(_check(view, isin, 6, "EUR-hedged", "currency_hedged", _yes))
 
-    return Filterbefund(isin, baustein, sicht.as_of, tuple(pruefungen), neu)
-
-
-def _ja(wert: Any) -> bool:
-    return wert is True
+    return FilterResult(isin, block, view.as_of, tuple(checks), new)
 
 
-def _verifizierter_wert(
-    sicht: InstrumentView, isin: str, nummer: int, name: str, feld: str
-) -> tuple[Feldwert | None, Pruefung | None]:
-    """Der Wert, oder eine offene Prüfung, wenn er fehlt oder unverifiziert ist."""
-    wert = sicht.feld(isin, feld)
-    if wert is None:
-        return None, Pruefung(
-            nummer, name, Ausgang.OFFEN, f"{feld}: zum Stichtag kein Wert bekannt"
+def _yes(value: Any) -> bool:
+    return value is True
+
+
+def _verified_value(
+    view: InstrumentView, isin: str, number: int, name: str, field: str
+) -> tuple[FieldValue | None, Check | None]:
+    """The value, or an open check if it is missing or unverified."""
+    value = view.field(isin, field)
+    if value is None:
+        return None, Check(
+            number, name, Verdict.OPEN, f"{field}: no value known at the cut-off date"
         )
-    if wert.status is not Pruefstatus.VERIFIZIERT:
-        return None, Pruefung(
-            nummer,
+    if value.status is not VerificationStatus.VERIFIED:
+        return None, Check(
+            number,
             name,
-            Ausgang.OFFEN,
-            f"{feld} = {wert.wert} ist {wert.status} ({wert.quelle_typ}, {wert.quelle_url}); "
-            "zählt erst nach Abgleich mit dem Primärdokument",
+            Verdict.OPEN,
+            f"{field} = {value.value} is {value.status} ({value.source_type}, "
+            f"{value.source_url}); counts only after reconciliation with the primary document",
         )
-    return wert, None
+    return value, None
 
 
-def _pruefe(
-    sicht: InstrumentView,
+def _check(
+    view: InstrumentView,
     isin: str,
-    nummer: int,
+    number: int,
     name: str,
-    feld: str,
-    bedingung: Callable[[Any], bool],
+    field: str,
+    condition: Callable[[Any], bool],
     *,
-    regel: str = "ja",
-    sonst: Ausgang = Ausgang.VERLETZT,
-) -> Pruefung:
-    wert, offen = _verifizierter_wert(sicht, isin, nummer, name, feld)
-    if offen is not None:
-        return offen
-    ausgang = Ausgang.ERFUELLT if bedingung(wert.wert) else sonst
-    return Pruefung(
-        nummer,
+    rule: str = "yes",
+    otherwise: Verdict = Verdict.VIOLATED,
+) -> Check:
+    value, open_check = _verified_value(view, isin, number, name, field)
+    if open_check is not None:
+        return open_check
+    verdict = Verdict.FULFILLED if condition(value.value) else otherwise
+    return Check(
+        number,
         name,
-        ausgang,
-        f"{feld} = {wert.wert}, verlangt {regel} ({wert.quelle_typ}, Stand {wert.stand})",
+        verdict,
+        f"{field} = {value.value}, required {rule} ({value.source_type}, as of {value.as_of})",
     )
 
 
-def _pruefe_historie(sicht: InstrumentView, isin: str) -> tuple[Pruefung, bool]:
-    wert, offen = _verifizierter_wert(sicht, isin, 4, "Historie", "auflagedatum")
-    if offen is not None:
-        return offen, False
-    jahre = volle_kalenderjahre(wert.wert, sicht.as_of.date())
-    neu = jahre < MINDEST_KALENDERJAHRE
-    begruendung = f"{jahre} volle Kalenderjahre seit Auflage am {wert.wert}"
-    if neu:
-        begruendung += (
-            f"; weniger als {MINDEST_KALENDERJAHRE}: „neu“, Nettokosten über die TER "
-            "mit 5 Punkten Abschlag (A5.3)"
+def _check_history(view: InstrumentView, isin: str) -> tuple[Check, bool]:
+    value, open_check = _verified_value(view, isin, 4, "History", "inception_date")
+    if open_check is not None:
+        return open_check, False
+    years = full_calendar_years(value.value, view.as_of.date())
+    new = years < MIN_CALENDAR_YEARS
+    reason = f"{years} full calendar years since inception on {value.value}"
+    if new:
+        reason += (
+            f'; fewer than {MIN_CALENDAR_YEARS}: "new", net costs via the TER '
+            "with a 5-point deduction (A5.3)"
         )
-    return Pruefung(4, "Historie", Ausgang.ERFUELLT, begruendung), neu
+    return Check(4, "History", Verdict.FULFILLED, reason), new

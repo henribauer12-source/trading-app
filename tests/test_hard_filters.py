@@ -1,11 +1,11 @@
-"""Tests der harten Filter A5.2 (Auswertung nach Anlage-Spezifikation v1.3).
+"""Tests of the hard filters A5.2 (evaluation per investment spec v1.3).
 
-**Alle ISINs, URLs und Zahlen hier sind Platzhalter** — siehe
-``tests/test_stammdaten.py``. Die Volumina sind Grenzwerte der Spezifikation
-(100 Mio. €, 500 Mio. €) und Zahlen knapp daneben, keine Fondsdaten.
+**All ISINs, URLs and numbers here are placeholders** — see
+``tests/test_instruments.py``. The fund sizes are the spec's thresholds
+(100m €, 500m €) and numbers just next to them, not fund data.
 
-Der wichtigste Block ist ``TestUnverifiziert``: Ein Wert aus zweiter Hand
-darf keinen Filter stillschweigend bestehen lassen.
+The most important block is ``TestUnverified``: a second-hand value must not
+let any filter pass silently.
 """
 
 from __future__ import annotations
@@ -15,349 +15,354 @@ from decimal import Decimal
 
 import pytest
 
-from trading_app.harte_filter import (
-    Ausgang,
-    Baustein,
-    pruefe_harte_filter,
-    volle_kalenderjahre,
+from trading_app.hard_filters import (
+    BuildingBlock,
+    Verdict,
+    check_hard_filters,
+    full_calendar_years,
 )
-from trading_app.stammdaten import Feldwert, InstrumentStore, Pruefstatus, QuelleTyp
+from trading_app.instruments import FieldValue, InstrumentStore, SourceType, VerificationStatus
 
 UTC = dt.timezone.utc
-ISIN = "XX0000000002"  # Platzhalter, Prüfziffer von Hand gerechnet
-URL = "https://emittent.invalid/kid.pdf"
-STICHTAG = dt.datetime(2026, 9, 25, 12, tzinfo=UTC)
+ISIN = "XX0000000002"  # placeholder, check digit computed by hand
+URL = "https://issuer.invalid/kid.pdf"
+CUTOFF = dt.datetime(2026, 9, 25, 12, tzinfo=UTC)
 
 INDEX = {
-    Baustein.K1: "MSCI ACWI",
-    Baustein.K2_GELDMARKT: "€STR",
+    BuildingBlock.K1: "MSCI ACWI",
+    BuildingBlock.K2_MONEY_MARKET: "€STR",
 }
 
 
-def wert(feld: str, inhalt: object, *, status=Pruefstatus.VERIFIZIERT,
-         quelle_typ=QuelleTyp.KID, abgerufen_am=dt.datetime(2026, 3, 1, tzinfo=UTC)) -> Feldwert:
-    return Feldwert(
-        isin=ISIN, feld=feld, wert=inhalt, quelle_url=URL, quelle_typ=quelle_typ,
-        status=status, stand=dt.date(2026, 2, 15), abgerufen_am=abgerufen_am,
+def make_value(field: str, content: object, *, status=VerificationStatus.VERIFIED,
+               source_type=SourceType.KID,
+               retrieved_at=dt.datetime(2026, 3, 1, tzinfo=UTC)) -> FieldValue:
+    return FieldValue(
+        isin=ISIN, field=field, value=content, source_url=URL, source_type=source_type,
+        status=status, as_of=dt.date(2026, 2, 15), retrieved_at=retrieved_at,
     )
 
 
-def bestehende_werte(baustein: Baustein, **abweichungen: object) -> list[Feldwert]:
-    """Ein verifizierter Satz, der alle mechanischen Filter des Bausteins besteht.
+def passing_values(block: BuildingBlock, **overrides: object) -> list[FieldValue]:
+    """A verified set that passes all mechanical filters of the building block.
 
-    ``abweichungen`` ersetzt einzelne Werte; ``None`` lässt das Feld weg.
+    ``overrides`` replaces single values; ``None`` leaves the field out.
     """
-    inhalte: dict[str, object] = {
+    contents: dict[str, object] = {
         "ucits": True,
-        "gold_etc_lieferanspruch": True,
-        "xetra_handelbar": True,
-        "kid_sprache_de": True,
-        "index_name": INDEX.get(baustein, "Platzhalter-Index"),
-        "fondsvolumen": Decimal("500000000"),
-        "auflagedatum": dt.date(2015, 6, 1),
-        "aktienfonds_invstg": True,
-        "waehrungsgesichert": True,
+        "gold_etc_delivery_claim": True,
+        "xetra_tradable": True,
+        "kid_language_de": True,
+        "index_name": INDEX.get(block, "Placeholder index"),
+        "fund_size": Decimal("500000000"),
+        "inception_date": dt.date(2015, 6, 1),
+        "equity_fund_invstg": True,
+        "currency_hedged": True,
     }
-    inhalte.update(abweichungen)
-    return [wert(feld, inhalt) for feld, inhalt in inhalte.items() if inhalt is not None]
+    contents.update(overrides)
+    return [make_value(field, content) for field, content in contents.items() if content is not None]
 
 
-def befund(baustein: Baustein, werte: list[Feldwert], stichtag: dt.datetime = STICHTAG):
+def evaluate(block: BuildingBlock, values: list[FieldValue], cutoff: dt.datetime = CUTOFF):
     with InstrumentStore(":memory:") as store:
-        store.append(werte)
-        return pruefe_harte_filter(store.view(stichtag), ISIN, baustein)
+        store.append(values)
+        return check_hard_filters(store.view(cutoff), ISIN, block)
 
 
-def ausgang(befund_, nummer: int, name: str | None = None) -> Ausgang:
-    """Der Ausgang einer Einzelprüfung."""
-    treffer = [
-        p for p in befund_.pruefungen if p.nummer == nummer and (name is None or p.name == name)
+def verdict_of(result, number: int, name: str | None = None) -> Verdict:
+    """The verdict of a single check."""
+    hits = [
+        c for c in result.checks if c.number == number and (name is None or c.name == name)
     ]
-    assert len(treffer) == 1, f"Prüfung {nummer}/{name} nicht eindeutig: {befund_.pruefungen}"
-    return treffer[0].ausgang
+    assert len(hits) == 1, f"Check {number}/{name} not unique: {result.checks}"
+    return hits[0].verdict
 
 
 # ---------------------------------------------------------------------------
-# Vollständige Sätze
+# Complete sets
 # ---------------------------------------------------------------------------
 
 
-class TestVollstaendig:
-    @pytest.mark.parametrize("baustein", [Baustein.K1, Baustein.K2_GELDMARKT])
-    def test_bausteine_mit_konkretem_index_sind_zulaessig(self, baustein) -> None:
-        b = befund(baustein, bestehende_werte(baustein))
-        assert b.zulaessig, b.pruefungen
-        assert b.ausgang is Ausgang.ERFUELLT
-        assert b.neu is False
+class TestComplete:
+    @pytest.mark.parametrize("block", [BuildingBlock.K1, BuildingBlock.K2_MONEY_MARKET])
+    def test_blocks_with_concrete_index_are_eligible(self, block) -> None:
+        r = evaluate(block, passing_values(block))
+        assert r.eligible, r.checks
+        assert r.verdict is Verdict.FULFILLED
+        assert r.new is False
 
     @pytest.mark.parametrize(
-        "baustein",
-        [Baustein.K2_EUR_STAATSANLEIHEN, Baustein.K2_GLOBALE_ANLEIHEN,
-         Baustein.S_GOLD, Baustein.S_FAKTOR],
+        "block",
+        [BuildingBlock.K2_EUR_GOVERNMENT_BONDS, BuildingBlock.K2_GLOBAL_BONDS,
+         BuildingBlock.S_GOLD, BuildingBlock.S_FACTOR],
     )
-    def test_indexfamilie_bleibt_offen(self, baustein) -> None:
-        """A5.5 nennt hier nur eine Indexfamilie — nicht raten, sondern offen lassen."""
-        b = befund(baustein, bestehende_werte(baustein))
-        assert ausgang(b, 2) is Ausgang.OFFEN
-        assert b.ausgang is Ausgang.OFFEN
-        assert not b.zulaessig
-        offene = [p for p in b.pruefungen if p.ausgang is not Ausgang.ERFUELLT]
-        assert [p.nummer for p in offene] == [2]
+    def test_index_family_stays_open(self, block) -> None:
+        """A5.5 names only an index family here — do not guess, leave it open."""
+        r = evaluate(block, passing_values(block))
+        assert verdict_of(r, 2) is Verdict.OPEN
+        assert r.verdict is Verdict.OPEN
+        assert not r.eligible
+        not_fulfilled = [c for c in r.checks if c.verdict is not Verdict.FULFILLED]
+        assert [c.number for c in not_fulfilled] == [2]
 
     @pytest.mark.parametrize(
-        ("baustein", "nummern"),
+        ("block", "numbers"),
         [
-            (Baustein.K1, [1, 1, 1, 2, 3, 4, 5]),
-            (Baustein.K2_GELDMARKT, [1, 1, 1, 2, 3, 4]),
-            (Baustein.K2_EUR_STAATSANLEIHEN, [1, 1, 1, 2, 3, 4]),
-            (Baustein.K2_GLOBALE_ANLEIHEN, [1, 1, 1, 2, 3, 4, 6]),
-            (Baustein.S_GOLD, [1, 1, 1, 2, 3, 4]),
-            (Baustein.S_FAKTOR, [1, 1, 1, 2, 3, 4, 5]),
+            (BuildingBlock.K1, [1, 1, 1, 2, 3, 4, 5]),
+            (BuildingBlock.K2_MONEY_MARKET, [1, 1, 1, 2, 3, 4]),
+            (BuildingBlock.K2_EUR_GOVERNMENT_BONDS, [1, 1, 1, 2, 3, 4]),
+            (BuildingBlock.K2_GLOBAL_BONDS, [1, 1, 1, 2, 3, 4, 6]),
+            (BuildingBlock.S_GOLD, [1, 1, 1, 2, 3, 4]),
+            (BuildingBlock.S_FACTOR, [1, 1, 1, 2, 3, 4, 5]),
         ],
     )
-    def test_welche_filter_je_baustein_laufen(self, baustein, nummern) -> None:
-        b = befund(baustein, bestehende_werte(baustein))
-        assert [p.nummer for p in b.pruefungen] == nummern
+    def test_which_filters_run_per_block(self, block, numbers) -> None:
+        r = evaluate(block, passing_values(block))
+        assert [c.number for c in r.checks] == numbers
 
-    def test_baustein_als_text(self) -> None:
-        b = befund("K1 Aktien Welt", bestehende_werte(Baustein.K1))
-        assert b.baustein is Baustein.K1
+    def test_block_as_text(self) -> None:
+        r = evaluate("K1 Global equities", passing_values(BuildingBlock.K1))
+        assert r.building_block is BuildingBlock.K1
 
-    def test_unbekannter_baustein_wird_abgelehnt(self) -> None:
+    def test_unknown_block_is_rejected(self) -> None:
         with pytest.raises(ValueError):
-            befund("K3", bestehende_werte(Baustein.K1))
+            evaluate("K3", passing_values(BuildingBlock.K1))
 
 
 # ---------------------------------------------------------------------------
-# Filter 1: UCITS / Gold-ETC, Handelsplatz, KID
+# Filter 1: UCITS / gold ETC, trading venue, KID
 # ---------------------------------------------------------------------------
 
 
 class TestFilter1:
-    def test_kein_ucits_ist_verletzt(self) -> None:
-        b = befund(Baustein.K1, bestehende_werte(Baustein.K1, ucits=False))
-        assert ausgang(b, 1, "UCITS") is Ausgang.VERLETZT
-        assert b.ausgang is Ausgang.VERLETZT
+    def test_no_ucits_is_violated(self) -> None:
+        r = evaluate(BuildingBlock.K1, passing_values(BuildingBlock.K1, ucits=False))
+        assert verdict_of(r, 1, "UCITS") is Verdict.VIOLATED
+        assert r.verdict is Verdict.VIOLATED
 
-    def test_kein_deutsches_kid_ist_verletzt(self) -> None:
-        b = befund(Baustein.K1, bestehende_werte(Baustein.K1, kid_sprache_de=False))
-        assert ausgang(b, 1, "KID auf Deutsch") is Ausgang.VERLETZT
+    def test_no_german_kid_is_violated(self) -> None:
+        r = evaluate(BuildingBlock.K1, passing_values(BuildingBlock.K1, kid_language_de=False))
+        assert verdict_of(r, 1, "KID in German") is Verdict.VIOLATED
 
-    def test_nicht_an_xetra_ist_offen_nicht_verletzt(self) -> None:
-        """A5.2 lässt jeden deutschen Handelsplatz zu; das Feld kennt nur Xetra."""
-        b = befund(Baustein.K1, bestehende_werte(Baustein.K1, xetra_handelbar=False))
-        assert ausgang(b, 1, "Xetra") is Ausgang.OFFEN
-        assert not b.zulaessig
+    def test_not_on_xetra_is_open_not_violated(self) -> None:
+        """A5.2 permits any German trading venue; the field knows only Xetra."""
+        r = evaluate(BuildingBlock.K1, passing_values(BuildingBlock.K1, xetra_tradable=False))
+        assert verdict_of(r, 1, "Xetra") is Verdict.OPEN
+        assert not r.eligible
 
-    def test_gold_braucht_lieferanspruch_statt_ucits(self) -> None:
-        """Ein Gold-ETC ist kein UCITS-Fonds; für S-Gold zählt der Lieferanspruch."""
-        b = befund(Baustein.S_GOLD, bestehende_werte(Baustein.S_GOLD, ucits=False))
-        assert ausgang(b, 1, "ETC mit Lieferanspruch") is Ausgang.ERFUELLT
+    def test_gold_needs_delivery_claim_instead_of_ucits(self) -> None:
+        """A gold ETC is not a UCITS fund; for S-Gold the delivery claim counts."""
+        r = evaluate(BuildingBlock.S_GOLD, passing_values(BuildingBlock.S_GOLD, ucits=False))
+        assert verdict_of(r, 1, "ETC with delivery claim") is Verdict.FULFILLED
 
-        ohne = befund(
-            Baustein.S_GOLD, bestehende_werte(Baustein.S_GOLD, gold_etc_lieferanspruch=False)
+        without = evaluate(
+            BuildingBlock.S_GOLD,
+            passing_values(BuildingBlock.S_GOLD, gold_etc_delivery_claim=False),
         )
-        assert ausgang(ohne, 1, "ETC mit Lieferanspruch") is Ausgang.VERLETZT
+        assert verdict_of(without, 1, "ETC with delivery claim") is Verdict.VIOLATED
 
 
 # ---------------------------------------------------------------------------
-# Filter 2: Index
+# Filter 2: index
 # ---------------------------------------------------------------------------
 
 
 class TestFilter2:
     @pytest.mark.parametrize("index", ["MSCI ACWI", "MSCI ACWI IMI", "FTSE All-World"])
-    def test_k1_indizes_aus_a5_5(self, index) -> None:
-        b = befund(Baustein.K1, bestehende_werte(Baustein.K1, index_name=index))
-        assert ausgang(b, 2) is Ausgang.ERFUELLT
+    def test_k1_indices_from_a5_5(self, index) -> None:
+        r = evaluate(BuildingBlock.K1, passing_values(BuildingBlock.K1, index_name=index))
+        assert verdict_of(r, 2) is Verdict.FULFILLED
 
     @pytest.mark.parametrize("index", ["MSCI World", "MSCI ACWI ex USA", "€STR"])
-    def test_anderer_index_ist_fuer_k1_verletzt(self, index) -> None:
-        """World + EM ist eine Kombination auf Nutzerwunsch (A5.4), kein Einzelfonds für K1."""
-        b = befund(Baustein.K1, bestehende_werte(Baustein.K1, index_name=index))
-        assert ausgang(b, 2) is Ausgang.VERLETZT
+    def test_other_index_is_violated_for_k1(self, index) -> None:
+        """World + EM is a combination at the user's request (A5.4), not a single fund for K1."""
+        r = evaluate(BuildingBlock.K1, passing_values(BuildingBlock.K1, index_name=index))
+        assert verdict_of(r, 2) is Verdict.VIOLATED
 
-    def test_geldmarkt_braucht_estr(self) -> None:
-        b = befund(Baustein.K2_GELDMARKT,
-                   bestehende_werte(Baustein.K2_GELDMARKT, index_name="MSCI ACWI"))
-        assert ausgang(b, 2) is Ausgang.VERLETZT
+    def test_money_market_needs_estr(self) -> None:
+        r = evaluate(BuildingBlock.K2_MONEY_MARKET,
+                     passing_values(BuildingBlock.K2_MONEY_MARKET, index_name="MSCI ACWI"))
+        assert verdict_of(r, 2) is Verdict.VIOLATED
 
 
 # ---------------------------------------------------------------------------
-# Filter 3: Fondsvolumen
+# Filter 3: fund size
 # ---------------------------------------------------------------------------
 
 
 class TestFilter3:
     @pytest.mark.parametrize(
-        ("baustein", "volumen", "erwartet"),
+        ("block", "size", "expected"),
         [
-            (Baustein.K2_EUR_STAATSANLEIHEN, "100000000", Ausgang.ERFUELLT),  # ≥, Grenze gilt
-            (Baustein.K2_EUR_STAATSANLEIHEN, "99999999.99", Ausgang.VERLETZT),
-            (Baustein.K2_EUR_STAATSANLEIHEN, "50000000", Ausgang.VERLETZT),
-            (Baustein.K2_EUR_STAATSANLEIHEN, "10000000", Ausgang.VERLETZT),
-            (Baustein.S_FAKTOR, "100000000", Ausgang.ERFUELLT),
-            (Baustein.S_GOLD, "99999999.99", Ausgang.VERLETZT),
-            (Baustein.K2_GLOBALE_ANLEIHEN, "100000000", Ausgang.ERFUELLT),
-            (Baustein.K1, "500000000", Ausgang.ERFUELLT),
-            (Baustein.K1, "499999999.99", Ausgang.VERLETZT),
-            (Baustein.K1, "100000000", Ausgang.VERLETZT),
-            (Baustein.K2_GELDMARKT, "500000000", Ausgang.ERFUELLT),
-            (Baustein.K2_GELDMARKT, "499999999.99", Ausgang.VERLETZT),
+            (BuildingBlock.K2_EUR_GOVERNMENT_BONDS, "100000000", Verdict.FULFILLED),  # ≥, limit counts
+            (BuildingBlock.K2_EUR_GOVERNMENT_BONDS, "99999999.99", Verdict.VIOLATED),
+            (BuildingBlock.K2_EUR_GOVERNMENT_BONDS, "50000000", Verdict.VIOLATED),
+            (BuildingBlock.K2_EUR_GOVERNMENT_BONDS, "10000000", Verdict.VIOLATED),
+            (BuildingBlock.S_FACTOR, "100000000", Verdict.FULFILLED),
+            (BuildingBlock.S_GOLD, "99999999.99", Verdict.VIOLATED),
+            (BuildingBlock.K2_GLOBAL_BONDS, "100000000", Verdict.FULFILLED),
+            (BuildingBlock.K1, "500000000", Verdict.FULFILLED),
+            (BuildingBlock.K1, "499999999.99", Verdict.VIOLATED),
+            (BuildingBlock.K1, "100000000", Verdict.VIOLATED),
+            (BuildingBlock.K2_MONEY_MARKET, "500000000", Verdict.FULFILLED),
+            (BuildingBlock.K2_MONEY_MARKET, "499999999.99", Verdict.VIOLATED),
         ],
     )
-    def test_schwellen(self, baustein, volumen, erwartet) -> None:
-        b = befund(baustein, bestehende_werte(baustein, fondsvolumen=Decimal(volumen)))
-        assert ausgang(b, 3) is erwartet
+    def test_thresholds(self, block, size, expected) -> None:
+        r = evaluate(block, passing_values(block, fund_size=Decimal(size)))
+        assert verdict_of(r, 3) is expected
 
 
 # ---------------------------------------------------------------------------
-# Filter 4: Historie
+# Filter 4: history
 # ---------------------------------------------------------------------------
 
 
 class TestFilter4:
     @pytest.mark.parametrize(
-        ("auflage", "stichtag", "jahre"),
+        ("inception", "cutoff", "years"),
         [
-            (dt.date(2023, 1, 2), dt.date(2026, 9, 25), 2),  # 2023 nicht voll
-            (dt.date(2023, 1, 1), dt.date(2026, 9, 25), 3),  # 2023 voll
+            (dt.date(2023, 1, 2), dt.date(2026, 9, 25), 2),  # 2023 not full
+            (dt.date(2023, 1, 1), dt.date(2026, 9, 25), 3),  # 2023 full
             (dt.date(2022, 12, 31), dt.date(2026, 9, 25), 3),  # 2023–2025
             (dt.date(2025, 6, 1), dt.date(2026, 1, 1), 0),
             (dt.date(2025, 1, 1), dt.date(2026, 1, 1), 1),
-            (dt.date(2025, 1, 1), dt.date(2025, 12, 31), 0),  # laufendes Jahr zählt nie
-            (dt.date(2027, 1, 1), dt.date(2026, 9, 25), 0),  # Auflage nach dem Stichtag
+            (dt.date(2025, 1, 1), dt.date(2025, 12, 31), 0),  # the current year never counts
+            (dt.date(2027, 1, 1), dt.date(2026, 9, 25), 0),  # inception after the cut-off date
         ],
     )
-    def test_volle_kalenderjahre(self, auflage, stichtag, jahre) -> None:
-        assert volle_kalenderjahre(auflage, stichtag) == jahre
+    def test_full_calendar_years(self, inception, cutoff, years) -> None:
+        assert full_calendar_years(inception, cutoff) == years
 
     @pytest.mark.parametrize(
-        ("auflage", "neu"),
+        ("inception", "new"),
         [
             (dt.date(2022, 6, 1), False),  # 2023, 2024, 2025
             (dt.date(2023, 6, 1), True),  # 2024, 2025
-            (dt.date(2025, 6, 1), True),  # keins
+            (dt.date(2025, 6, 1), True),  # none
         ],
     )
-    def test_juengere_fonds_sind_neu_aber_nicht_ausgeschlossen(self, auflage, neu) -> None:
-        b = befund(Baustein.K1, bestehende_werte(Baustein.K1, auflagedatum=auflage))
-        assert b.neu is neu
-        assert ausgang(b, 4) is Ausgang.ERFUELLT
-        assert b.zulaessig
+    def test_younger_funds_are_new_but_not_excluded(self, inception, new) -> None:
+        r = evaluate(BuildingBlock.K1, passing_values(BuildingBlock.K1, inception_date=inception))
+        assert r.new is new
+        assert verdict_of(r, 4) is Verdict.FULFILLED
+        assert r.eligible
 
-    def test_stichtag_der_sicht_zaehlt(self) -> None:
-        """Derselbe Fonds, zwei Stichtage: erst neu, dann nicht mehr."""
-        werte = bestehende_werte(Baustein.K1, auflagedatum=dt.date(2023, 6, 1))
-        assert befund(Baustein.K1, werte, dt.datetime(2026, 12, 31, tzinfo=UTC)).neu is True
-        assert befund(Baustein.K1, werte, dt.datetime(2027, 1, 1, tzinfo=UTC)).neu is False
-
-
-# ---------------------------------------------------------------------------
-# Filter 5 und 6
-# ---------------------------------------------------------------------------
-
-
-class TestFilter5Und6:
-    @pytest.mark.parametrize("baustein", [Baustein.K1, Baustein.S_FAKTOR])
-    def test_aktien_bausteine_brauchen_aktienfonds(self, baustein) -> None:
-        b = befund(baustein, bestehende_werte(baustein, aktienfonds_invstg=False))
-        assert ausgang(b, 5) is Ausgang.VERLETZT
-
-    def test_globale_anleihen_brauchen_eur_absicherung(self) -> None:
-        b = befund(Baustein.K2_GLOBALE_ANLEIHEN,
-                   bestehende_werte(Baustein.K2_GLOBALE_ANLEIHEN, waehrungsgesichert=False))
-        assert ausgang(b, 6) is Ausgang.VERLETZT
-
-    def test_euro_anleihen_brauchen_keine_absicherung(self) -> None:
-        b = befund(Baustein.K2_EUR_STAATSANLEIHEN,
-                   bestehende_werte(Baustein.K2_EUR_STAATSANLEIHEN, waehrungsgesichert=False))
-        assert 6 not in [p.nummer for p in b.pruefungen]
+    def test_cutoff_of_the_view_counts(self) -> None:
+        """The same fund, two cut-off dates: new first, then no longer."""
+        values = passing_values(BuildingBlock.K1, inception_date=dt.date(2023, 6, 1))
+        assert evaluate(BuildingBlock.K1, values, dt.datetime(2026, 12, 31, tzinfo=UTC)).new is True
+        assert evaluate(BuildingBlock.K1, values, dt.datetime(2027, 1, 1, tzinfo=UTC)).new is False
 
 
 # ---------------------------------------------------------------------------
-# Unverifizierte und fehlende Werte — der wichtigste Block
+# Filters 5 and 6
 # ---------------------------------------------------------------------------
 
 
-class TestUnverifiziert:
-    def test_unverifizierter_wert_besteht_nie(self) -> None:
-        """Ein Volumen aus zweiter Hand, weit über der Schwelle: trotzdem offen."""
-        werte = bestehende_werte(Baustein.K1, fondsvolumen=None) + [
-            wert("fondsvolumen", Decimal("99000000000"), status=Pruefstatus.UNVERIFIZIERT,
-                 quelle_typ=QuelleTyp.SEKUNDAER),
+class TestFilter5And6:
+    @pytest.mark.parametrize("block", [BuildingBlock.K1, BuildingBlock.S_FACTOR])
+    def test_equity_blocks_need_equity_fund(self, block) -> None:
+        r = evaluate(block, passing_values(block, equity_fund_invstg=False))
+        assert verdict_of(r, 5) is Verdict.VIOLATED
+
+    def test_global_bonds_need_eur_hedging(self) -> None:
+        r = evaluate(BuildingBlock.K2_GLOBAL_BONDS,
+                     passing_values(BuildingBlock.K2_GLOBAL_BONDS, currency_hedged=False))
+        assert verdict_of(r, 6) is Verdict.VIOLATED
+
+    def test_euro_bonds_need_no_hedging(self) -> None:
+        r = evaluate(BuildingBlock.K2_EUR_GOVERNMENT_BONDS,
+                     passing_values(BuildingBlock.K2_EUR_GOVERNMENT_BONDS, currency_hedged=False))
+        assert 6 not in [c.number for c in r.checks]
+
+
+# ---------------------------------------------------------------------------
+# Unverified and missing values — the most important block
+# ---------------------------------------------------------------------------
+
+
+class TestUnverified:
+    def test_unverified_value_never_passes(self) -> None:
+        """A second-hand fund size far above the threshold: open nonetheless."""
+        values = passing_values(BuildingBlock.K1, fund_size=None) + [
+            make_value("fund_size", Decimal("99000000000"), status=VerificationStatus.UNVERIFIED,
+                       source_type=SourceType.SECONDARY),
         ]
-        b = befund(Baustein.K1, werte)
-        assert ausgang(b, 3) is Ausgang.OFFEN
-        assert not b.zulaessig
-        begruendung = next(p.begruendung for p in b.pruefungen if p.nummer == 3)
-        assert "UNVERIFIZIERT" in begruendung
-        assert "Primärdokument" in begruendung
+        r = evaluate(BuildingBlock.K1, values)
+        assert verdict_of(r, 3) is Verdict.OPEN
+        assert not r.eligible
+        reason = next(c.reason for c in r.checks if c.number == 3)
+        assert "UNVERIFIED" in reason
+        assert "primary document" in reason
 
-    def test_unverifiziert_aus_primaerdokument_besteht_auch_nicht(self) -> None:
-        """Aus dem KID abgeschrieben, aber noch nicht abgeglichen: offen."""
-        werte = bestehende_werte(Baustein.K1, ucits=None) + [
-            wert("ucits", True, status=Pruefstatus.UNVERIFIZIERT),
+    def test_unverified_from_primary_document_does_not_pass_either(self) -> None:
+        """Copied from the KID but not yet reconciled: open."""
+        values = passing_values(BuildingBlock.K1, ucits=None) + [
+            make_value("ucits", True, status=VerificationStatus.UNVERIFIED),
         ]
-        assert ausgang(befund(Baustein.K1, werte), 1, "UCITS") is Ausgang.OFFEN
+        assert verdict_of(evaluate(BuildingBlock.K1, values), 1, "UCITS") is Verdict.OPEN
 
-    def test_unverifizierter_verstoss_ist_offen_nicht_verletzt(self) -> None:
-        """Zweite Hand schließt auch nicht endgültig aus."""
-        werte = bestehende_werte(Baustein.K1, fondsvolumen=None) + [
-            wert("fondsvolumen", Decimal("1"), status=Pruefstatus.UNVERIFIZIERT,
-                 quelle_typ=QuelleTyp.SEKUNDAER),
+    def test_unverified_violation_is_open_not_violated(self) -> None:
+        """Second hand does not exclude for good either."""
+        values = passing_values(BuildingBlock.K1, fund_size=None) + [
+            make_value("fund_size", Decimal("1"), status=VerificationStatus.UNVERIFIED,
+                       source_type=SourceType.SECONDARY),
         ]
-        assert ausgang(befund(Baustein.K1, werte), 3) is Ausgang.OFFEN
+        assert verdict_of(evaluate(BuildingBlock.K1, values), 3) is Verdict.OPEN
 
     @pytest.mark.parametrize(
-        ("feld", "nummer"),
-        [("ucits", 1), ("index_name", 2), ("fondsvolumen", 3), ("auflagedatum", 4),
-         ("aktienfonds_invstg", 5)],
+        ("field", "number"),
+        [("ucits", 1), ("index_name", 2), ("fund_size", 3), ("inception_date", 4),
+         ("equity_fund_invstg", 5)],
     )
-    def test_fehlender_wert_ist_offen(self, feld, nummer) -> None:
-        b = befund(Baustein.K1, bestehende_werte(Baustein.K1, **{feld: None}))
-        offene = [p for p in b.pruefungen if p.ausgang is Ausgang.OFFEN]
-        assert [p.nummer for p in offene] == [nummer]
-        assert "kein Wert" in offene[0].begruendung
-        assert not b.zulaessig
+    def test_missing_value_is_open(self, field, number) -> None:
+        r = evaluate(BuildingBlock.K1, passing_values(BuildingBlock.K1, **{field: None}))
+        open_checks = [c for c in r.checks if c.verdict is Verdict.OPEN]
+        assert [c.number for c in open_checks] == [number]
+        assert "no value" in open_checks[0].reason
+        assert not r.eligible
 
-    def test_unverifizierte_historie_ist_offen_und_nicht_neu(self) -> None:
-        werte = bestehende_werte(Baustein.K1, auflagedatum=None) + [
-            wert("auflagedatum", dt.date(2025, 6, 1), status=Pruefstatus.UNVERIFIZIERT),
+    def test_unverified_history_is_open_and_not_new(self) -> None:
+        values = passing_values(BuildingBlock.K1, inception_date=None) + [
+            make_value("inception_date", dt.date(2025, 6, 1),
+                       status=VerificationStatus.UNVERIFIED),
         ]
-        b = befund(Baustein.K1, werte)
-        assert ausgang(b, 4) is Ausgang.OFFEN
-        assert b.neu is False
+        r = evaluate(BuildingBlock.K1, values)
+        assert verdict_of(r, 4) is Verdict.OPEN
+        assert r.new is False
 
-    def test_verletzt_schlaegt_offen(self) -> None:
-        """Ein verifizierter Verstoß schließt aus, egal was sonst offen ist."""
-        b = befund(Baustein.K1, bestehende_werte(Baustein.K1, ucits=False, fondsvolumen=None))
-        assert ausgang(b, 3) is Ausgang.OFFEN
-        assert b.ausgang is Ausgang.VERLETZT
+    def test_violated_beats_open(self) -> None:
+        """A verified violation excludes, whatever else is open."""
+        r = evaluate(BuildingBlock.K1,
+                     passing_values(BuildingBlock.K1, ucits=False, fund_size=None))
+        assert verdict_of(r, 3) is Verdict.OPEN
+        assert r.verdict is Verdict.VIOLATED
 
 
 # ---------------------------------------------------------------------------
-# Point-in-time in den Filtern
+# Point-in-time in the filters
 # ---------------------------------------------------------------------------
 
 
-class TestStichtag:
-    def test_wert_nach_dem_stichtag_zaehlt_nicht(self) -> None:
-        spaet = dt.datetime(2026, 10, 1, tzinfo=UTC)
-        werte = bestehende_werte(Baustein.K1, fondsvolumen=None) + [
-            wert("fondsvolumen", Decimal("600000000"), abgerufen_am=spaet),
+class TestCutoff:
+    def test_value_after_the_cutoff_does_not_count(self) -> None:
+        late = dt.datetime(2026, 10, 1, tzinfo=UTC)
+        values = passing_values(BuildingBlock.K1, fund_size=None) + [
+            make_value("fund_size", Decimal("600000000"), retrieved_at=late),
         ]
-        assert ausgang(befund(Baustein.K1, werte, STICHTAG), 3) is Ausgang.OFFEN
-        assert ausgang(befund(Baustein.K1, werte, spaet), 3) is Ausgang.ERFUELLT
+        assert verdict_of(evaluate(BuildingBlock.K1, values, CUTOFF), 3) is Verdict.OPEN
+        assert verdict_of(evaluate(BuildingBlock.K1, values, late), 3) is Verdict.FULFILLED
 
-    def test_spaetere_korrektur_aendert_frueheren_befund_nicht(self) -> None:
-        """Volumen fällt nach dem Stichtag unter die Schwelle — der Befund per Stichtag bleibt."""
-        werte = bestehende_werte(Baustein.K1) + [
-            wert("fondsvolumen", Decimal("1"), abgerufen_am=dt.datetime(2026, 10, 1, tzinfo=UTC)),
+    def test_later_correction_does_not_change_earlier_result(self) -> None:
+        """Fund size drops below the threshold after the cut-off — the result as of then stays."""
+        values = passing_values(BuildingBlock.K1) + [
+            make_value("fund_size", Decimal("1"),
+                       retrieved_at=dt.datetime(2026, 10, 1, tzinfo=UTC)),
         ]
-        assert befund(Baustein.K1, werte, STICHTAG).zulaessig
-        spaeter = befund(Baustein.K1, werte, dt.datetime(2026, 10, 2, tzinfo=UTC))
-        assert ausgang(spaeter, 3) is Ausgang.VERLETZT
+        assert evaluate(BuildingBlock.K1, values, CUTOFF).eligible
+        later = evaluate(BuildingBlock.K1, values, dt.datetime(2026, 10, 2, tzinfo=UTC))
+        assert verdict_of(later, 3) is Verdict.VIOLATED
 
-    def test_befund_traegt_den_stichtag(self) -> None:
-        assert befund(Baustein.K1, bestehende_werte(Baustein.K1)).stichtag == STICHTAG
+    def test_result_carries_the_cutoff(self) -> None:
+        assert evaluate(BuildingBlock.K1, passing_values(BuildingBlock.K1)).as_of == CUTOFF

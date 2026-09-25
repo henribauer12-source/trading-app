@@ -1,11 +1,11 @@
-"""Tests der Instrument-Stammdaten (Anlage-Spezifikation A5.1).
+"""Tests of the instrument master data (investment spec A5.1).
 
-**Alle ISINs, URLs und Zahlen hier sind Platzhalter.** Die ISINs beginnen mit
-``XX`` (kein Ländercode) und bestehen sonst aus Nullen; ihre Prüfziffern sind
-von Hand nach ISO 6166 gerechnet. Die URLs enden auf ``.invalid`` (RFC 2606).
-Keine Zahl in dieser Datei ist recherchiert.
+**All ISINs, URLs and numbers here are placeholders.** The ISINs start with
+``XX`` (no country code) and otherwise consist of zeros; their check digits
+were computed by hand according to ISO 6166. The URLs end in ``.invalid``
+(RFC 2606). No number in this file is researched.
 
-Der wichtigste Block ist ``TestLeckage``, nach dem Muster von
+The most important block is ``TestLeakage``, following the pattern of
 ``tests/test_bitemporal.py``.
 """
 
@@ -19,56 +19,56 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from trading_app.stammdaten import (
-    FELDER,
-    Ausschuettung,
-    Feldwert,
-    FeldwertValidationError,
+from trading_app.instruments import (
+    FIELDS,
+    Distribution,
+    FieldValue,
+    FieldValueValidationError,
     InstrumentStore,
-    Pruefstatus,
-    QuelleTyp,
-    Replikation,
-    lade_quelldatei,
+    Replication,
+    SourceType,
+    VerificationStatus,
+    load_source_file,
 )
 
 UTC = dt.timezone.utc
 
-# Platzhalter-ISINs, Prüfziffer von Hand gerechnet.
+# Placeholder ISINs, check digit computed by hand.
 ISIN_A = "XX0000000002"
 ISIN_B = "XX0000000010"
-URL_KID = "https://emittent.invalid/kid.pdf"
-URL_FACTSHEET = "https://emittent.invalid/factsheet.pdf"
+URL_KID = "https://issuer.invalid/kid.pdf"
+URL_FACTSHEET = "https://issuer.invalid/factsheet.pdf"
 
 
-def zeit(jahr: int, monat: int, tag: int, stunde: int = 12) -> dt.datetime:
-    return dt.datetime(jahr, monat, tag, stunde, tzinfo=UTC)
+def ts(year: int, month: int, day: int, hour: int = 12) -> dt.datetime:
+    return dt.datetime(year, month, day, hour, tzinfo=UTC)
 
 
-def mach_wert(
-    feld: str = "ter",
-    wert: object = Decimal("0.1234"),
+def make_value(
+    field: str = "ter",
+    value: object = Decimal("0.1234"),
     *,
     isin: str = ISIN_A,
-    stand: dt.date = dt.date(2026, 2, 15),
-    abgerufen_am: dt.datetime | None = None,
-    status: Pruefstatus = Pruefstatus.VERIFIZIERT,
-    quelle_typ: QuelleTyp = QuelleTyp.KID,
-    quelle_url: str = URL_KID,
-    periode: str = "",
-    einheit: str | None = None,
-) -> Feldwert:
-    """Baut einen gültigen Feldwert; abgerufen wird vorgabemäßig am Standtag."""
-    return Feldwert(
+    as_of: dt.date = dt.date(2026, 2, 15),
+    retrieved_at: dt.datetime | None = None,
+    status: VerificationStatus = VerificationStatus.VERIFIED,
+    source_type: SourceType = SourceType.KID,
+    source_url: str = URL_KID,
+    period: str = "",
+    unit: str | None = None,
+) -> FieldValue:
+    """Builds a valid FieldValue; by default it is retrieved on the as-of date."""
+    return FieldValue(
         isin=isin,
-        feld=feld,
-        wert=wert,
-        quelle_url=quelle_url,
-        quelle_typ=quelle_typ,
+        field=field,
+        value=value,
+        source_url=source_url,
+        source_type=source_type,
         status=status,
-        stand=stand,
-        abgerufen_am=abgerufen_am or zeit(stand.year, stand.month, stand.day),
-        periode=periode,
-        einheit=einheit,
+        as_of=as_of,
+        retrieved_at=retrieved_at or ts(as_of.year, as_of.month, as_of.day),
+        period=period,
+        unit=unit,
     )
 
 
@@ -79,208 +79,208 @@ def store():
 
 
 # ---------------------------------------------------------------------------
-# Eingangsprüfung
+# Input validation
 # ---------------------------------------------------------------------------
 
 
-class TestFeldwertPruefung:
-    def test_gueltiger_wert_wird_angenommen(self) -> None:
-        wert = mach_wert("ter", Decimal("0.1234"))
-        assert wert.wert == Decimal("0.1234")
-        assert isinstance(wert.wert, Decimal)
-        assert wert.einheit == "% p. a."  # aus FELDER gesetzt
+class TestFieldValueValidation:
+    def test_valid_value_is_accepted(self) -> None:
+        value = make_value("ter", Decimal("0.1234"))
+        assert value.value == Decimal("0.1234")
+        assert isinstance(value.value, Decimal)
+        assert value.unit == "% p. a."  # set from FIELDS
 
-    def test_float_wird_abgelehnt(self) -> None:
-        """CLAUDE.md: Geldbeträge und Kosten in Decimal, nie float."""
-        with pytest.raises(FeldwertValidationError, match="float ist verboten"):
-            mach_wert("ter", 0.1234)
+    def test_float_is_rejected(self) -> None:
+        """CLAUDE.md: money amounts and costs in Decimal, never float."""
+        with pytest.raises(FieldValueValidationError, match="float is forbidden"):
+            make_value("ter", 0.1234)
 
-    def test_bool_ist_keine_zahl(self) -> None:
-        """True ist in Python 1 — als TER wäre das ein stiller Tippfehler."""
-        with pytest.raises(FeldwertValidationError, match="ter"):
-            mach_wert("ter", True)
+    def test_bool_is_not_a_number(self) -> None:
+        """True is 1 in Python — as a TER that would be a silent typo."""
+        with pytest.raises(FieldValueValidationError, match="ter"):
+            make_value("ter", True)
 
-    def test_komma_wird_abgelehnt(self) -> None:
-        with pytest.raises(FeldwertValidationError, match="kein Komma"):
-            mach_wert("ter", "0,1234")
+    def test_comma_is_rejected(self) -> None:
+        with pytest.raises(FieldValueValidationError, match="no comma"):
+            make_value("ter", "0,1234")
 
-    def test_nan_wird_abgelehnt(self) -> None:
-        with pytest.raises(FeldwertValidationError, match="endliche"):
-            mach_wert("ter", Decimal("NaN"))
+    def test_nan_is_rejected(self) -> None:
+        with pytest.raises(FieldValueValidationError, match="finite"):
+            make_value("ter", Decimal("NaN"))
 
-    def test_text_und_int_werden_zu_decimal(self) -> None:
-        assert mach_wert("ter", "0.1234").wert == Decimal("0.1234")
-        assert mach_wert("fondsvolumen", 123_456_789).wert == Decimal(123_456_789)
+    def test_text_and_int_become_decimal(self) -> None:
+        assert make_value("ter", "0.1234").value == Decimal("0.1234")
+        assert make_value("fund_size", 123_456_789).value == Decimal(123_456_789)
 
-    def test_unbekanntes_feld_wird_abgelehnt(self) -> None:
-        with pytest.raises(FeldwertValidationError, match="unbekanntes Feld"):
-            mach_wert("kurs", Decimal("1"))
+    def test_unknown_field_is_rejected(self) -> None:
+        with pytest.raises(FieldValueValidationError, match="unknown field"):
+            make_value("price", Decimal("1"))
 
-    def test_isin_mit_falscher_pruefziffer_wird_abgelehnt(self) -> None:
-        """Eine vertauschte Ziffer in einer von Hand gepflegten Liste."""
-        with pytest.raises(FeldwertValidationError, match="Prüfziffer"):
-            mach_wert(isin="XX0000000003")
+    def test_isin_with_wrong_check_digit_is_rejected(self) -> None:
+        """A transposed digit in a hand-maintained list."""
+        with pytest.raises(FieldValueValidationError, match="check digit"):
+            make_value(isin="XX0000000003")
 
     @pytest.mark.parametrize("isin", ["XX000000002", "xx0000000002", "XX000000000A", "", None])
-    def test_isin_im_falschen_format_wird_abgelehnt(self, isin) -> None:
-        with pytest.raises(FeldwertValidationError, match="Format"):
-            mach_wert(isin=isin)
+    def test_isin_in_wrong_format_is_rejected(self, isin) -> None:
+        with pytest.raises(FieldValueValidationError, match="format"):
+            make_value(isin=isin)
 
-    def test_zeitzonenloses_abgerufen_am_wird_abgelehnt(self) -> None:
-        with pytest.raises(FeldwertValidationError, match="zeitzonenlos"):
-            mach_wert(abgerufen_am=dt.datetime(2026, 3, 1, 10))
+    def test_naive_retrieved_at_is_rejected(self) -> None:
+        with pytest.raises(FieldValueValidationError, match="timezone-naive"):
+            make_value(retrieved_at=dt.datetime(2026, 3, 1, 10))
 
-    def test_abgerufen_am_wird_auf_utc_normiert(self) -> None:
+    def test_retrieved_at_is_normalised_to_utc(self) -> None:
         berlin = dt.timezone(dt.timedelta(hours=1))
-        wert = mach_wert(abgerufen_am=dt.datetime(2026, 3, 1, 10, tzinfo=berlin))
-        assert wert.abgerufen_am.utcoffset() == dt.timedelta(0)
-        assert wert.abgerufen_am.hour == 9
+        value = make_value(retrieved_at=dt.datetime(2026, 3, 1, 10, tzinfo=berlin))
+        assert value.retrieved_at.utcoffset() == dt.timedelta(0)
+        assert value.retrieved_at.hour == 9
 
-    def test_abruf_vor_dem_stand_wird_abgelehnt(self) -> None:
-        """Wie available_at >= event_time (K2): kein Abruf vor dem Dokument."""
-        with pytest.raises(FeldwertValidationError, match="K2"):
-            mach_wert(stand=dt.date(2026, 8, 31), abgerufen_am=zeit(2026, 8, 30))
+    def test_retrieval_before_as_of_is_rejected(self) -> None:
+        """Like available_at >= event_time (K2): no retrieval before the document."""
+        with pytest.raises(FieldValueValidationError, match="K2"):
+            make_value(as_of=dt.date(2026, 8, 31), retrieved_at=ts(2026, 8, 30))
 
-    def test_abruf_am_standtag_ist_erlaubt(self) -> None:
-        wert = mach_wert(stand=dt.date(2026, 8, 31), abgerufen_am=zeit(2026, 8, 31, 0))
-        assert wert.stand == dt.date(2026, 8, 31)
+    def test_retrieval_on_as_of_date_is_allowed(self) -> None:
+        value = make_value(as_of=dt.date(2026, 8, 31), retrieved_at=ts(2026, 8, 31, 0))
+        assert value.as_of == dt.date(2026, 8, 31)
 
-    def test_zweite_hand_kann_nicht_verifiziert_sein(self) -> None:
-        with pytest.raises(FeldwertValidationError, match="zweiter Hand"):
-            mach_wert(quelle_typ=QuelleTyp.SEKUNDAER, status=Pruefstatus.VERIFIZIERT)
+    def test_second_hand_cannot_be_verified(self) -> None:
+        with pytest.raises(FieldValueValidationError, match="second-hand"):
+            make_value(source_type=SourceType.SECONDARY, status=VerificationStatus.VERIFIED)
 
-    def test_zweite_hand_als_unverifiziert_ist_erlaubt(self) -> None:
-        """Werte zweiter Hand dürfen gespeichert werden — markiert."""
-        wert = mach_wert(quelle_typ=QuelleTyp.SEKUNDAER, status=Pruefstatus.UNVERIFIZIERT)
-        assert wert.status is Pruefstatus.UNVERIFIZIERT
+    def test_second_hand_as_unverified_is_allowed(self) -> None:
+        """Second-hand values may be stored — labelled."""
+        value = make_value(source_type=SourceType.SECONDARY, status=VerificationStatus.UNVERIFIED)
+        assert value.status is VerificationStatus.UNVERIFIED
 
-    def test_status_und_quelle_als_text(self) -> None:
-        """So kommen sie aus der Quelldatei."""
-        wert = mach_wert(quelle_typ="factsheet", status="UNVERIFIZIERT")
-        assert wert.quelle_typ is QuelleTyp.FACTSHEET
-        assert wert.status is Pruefstatus.UNVERIFIZIERT
+    def test_status_and_source_as_text(self) -> None:
+        """That is how they come out of the source file."""
+        value = make_value(source_type="factsheet", status="UNVERIFIED")
+        assert value.source_type is SourceType.FACTSHEET
+        assert value.status is VerificationStatus.UNVERIFIED
 
-    @pytest.mark.parametrize("status", ["verifiziert", "GEPRUEFT", ""])
-    def test_unbekannter_status_wird_abgelehnt(self, status) -> None:
-        with pytest.raises(FeldwertValidationError, match="nicht erlaubt"):
-            mach_wert(status=status)
+    @pytest.mark.parametrize("status", ["verified", "CHECKED", ""])
+    def test_unknown_status_is_rejected(self, status) -> None:
+        with pytest.raises(FieldValueValidationError, match="not allowed"):
+            make_value(status=status)
 
-    def test_falsche_einheit_wird_abgelehnt(self) -> None:
-        """Eine TER in Basispunkten neben einer in Prozent wäre ein Faktor 100."""
-        with pytest.raises(FeldwertValidationError, match="geführt"):
-            mach_wert("ter", Decimal("12"), einheit="Basispunkte")
+    def test_wrong_unit_is_rejected(self) -> None:
+        """A TER in basis points next to one in percent would be a factor of 100."""
+        with pytest.raises(FieldValueValidationError, match="is stored in"):
+            make_value("ter", Decimal("12"), unit="basis points")
 
-    @pytest.mark.parametrize("url", ["", "kid.pdf", "ftp://emittent.invalid/kid.pdf", None])
-    def test_quelle_ist_pflicht(self, url) -> None:
-        with pytest.raises(FeldwertValidationError, match="quelle_url"):
-            mach_wert(quelle_url=url)
+    @pytest.mark.parametrize("url", ["", "kid.pdf", "ftp://issuer.invalid/kid.pdf", None])
+    def test_source_is_mandatory(self, url) -> None:
+        with pytest.raises(FieldValueValidationError, match="source_url"):
+            make_value(source_url=url)
 
-    def test_jahreswert_braucht_ein_jahr(self) -> None:
-        with pytest.raises(FeldwertValidationError, match="Kalenderjahr"):
-            mach_wert("tracking_differenz", Decimal("-0.0123"))
+    def test_annual_value_needs_a_year(self) -> None:
+        with pytest.raises(FieldValueValidationError, match="calendar year"):
+            make_value("tracking_difference", Decimal("-0.0123"))
 
-    def test_jahreswert_steht_erst_am_jahresende_fest(self) -> None:
-        """Eine TD für 2026 kann nicht in einem Factsheet vom August 2026 stehen."""
-        with pytest.raises(FeldwertValidationError, match="Jahresende"):
-            mach_wert(
-                "tracking_differenz", Decimal("-0.0123"),
-                periode="2026", stand=dt.date(2026, 8, 31),
+    def test_annual_value_is_final_only_at_year_end(self) -> None:
+        """A TD for 2026 cannot be in a factsheet from August 2026."""
+        with pytest.raises(FieldValueValidationError, match="year end"):
+            make_value(
+                "tracking_difference", Decimal("-0.0123"),
+                period="2026", as_of=dt.date(2026, 8, 31),
             )
 
-    def test_jahreswert_am_31_dezember_ist_erlaubt(self) -> None:
-        wert = mach_wert(
-            "tracking_differenz", Decimal("-0.0123"),
-            periode="2025", stand=dt.date(2025, 12, 31),
+    def test_annual_value_on_31_december_is_allowed(self) -> None:
+        value = make_value(
+            "tracking_difference", Decimal("-0.0123"),
+            period="2025", as_of=dt.date(2025, 12, 31),
         )
-        assert wert.periode == "2025"
+        assert value.period == "2025"
 
-    def test_periode_bei_normalem_feld_ist_verboten(self) -> None:
-        with pytest.raises(FeldwertValidationError, match="keine Perioden"):
-            mach_wert("ter", Decimal("0.1234"), periode="2025")
+    def test_period_on_ordinary_field_is_forbidden(self) -> None:
+        with pytest.raises(FieldValueValidationError, match="no periods"):
+            make_value("ter", Decimal("0.1234"), period="2025")
 
     @pytest.mark.parametrize(
-        ("feld", "wert"),
+        ("field", "value"),
         [
-            ("ucits", "ja"),
+            ("ucits", "yes"),
             ("ucits", 1),
-            ("domizil", "ie"),
-            ("domizil", "IRL"),
-            ("replikationsmethode", "synthetisch"),
-            ("ausschuettungsart", "monatlich"),
-            ("auflagedatum", dt.datetime(2015, 6, 1, tzinfo=UTC)),
-            ("auflagedatum", "01.06.2015"),
+            ("domicile", "ie"),
+            ("domicile", "IRL"),
+            ("replication_method", "synthetic"),
+            ("distribution_type", "monthly"),
+            ("inception_date", dt.datetime(2015, 6, 1, tzinfo=UTC)),
+            ("inception_date", "01.06.2015"),
             ("index_name", "   "),
         ],
     )
-    def test_falscher_typ_je_feld_wird_abgelehnt(self, feld, wert) -> None:
-        with pytest.raises(FeldwertValidationError, match=feld):
-            mach_wert(feld, wert)
+    def test_wrong_type_per_field_is_rejected(self, field, value) -> None:
+        with pytest.raises(FieldValueValidationError, match=field):
+            make_value(field, value)
 
-    def test_feldwert_ist_unveraenderlich(self) -> None:
-        wert = mach_wert()
+    def test_field_value_is_immutable(self) -> None:
+        value = make_value()
         with pytest.raises(AttributeError):
-            wert.wert = Decimal("9")  # type: ignore[misc]
+            value.value = Decimal("9")  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
-# Decimal und Typen über die Datenbank
+# Decimal and types through the database
 # ---------------------------------------------------------------------------
 
 
-class TestDatenbankRunde:
-    def test_decimal_kommt_exakt_zurueck(self, store) -> None:
-        """Mehr Stellen, als float halten kann: ein float-Umweg fiele hier auf."""
-        genau = Decimal("0.1234567890123456789")
-        store.append([mach_wert("ter", genau)])
-        zurueck = store.view(zeit(2026, 9, 1)).feld(ISIN_A, "ter").wert
-        assert isinstance(zurueck, Decimal)
-        assert zurueck == genau
-        assert str(zurueck) == "0.1234567890123456789"
+class TestDatabaseRoundTrip:
+    def test_decimal_comes_back_exactly(self, store) -> None:
+        """More digits than a float can hold: a detour via float would show here."""
+        exact = Decimal("0.1234567890123456789")
+        store.append([make_value("ter", exact)])
+        back = store.view(ts(2026, 9, 1)).field(ISIN_A, "ter").value
+        assert isinstance(back, Decimal)
+        assert back == exact
+        assert str(back) == "0.1234567890123456789"
 
-    def test_nachkommanullen_bleiben_wie_veroeffentlicht(self, store) -> None:
-        store.append([mach_wert("ter", Decimal("0.1230"))])
-        assert str(store.view(zeit(2026, 9, 1)).feld(ISIN_A, "ter").wert) == "0.1230"
+    def test_trailing_zeros_stay_as_published(self, store) -> None:
+        store.append([make_value("ter", Decimal("0.1230"))])
+        assert str(store.view(ts(2026, 9, 1)).field(ISIN_A, "ter").value) == "0.1230"
 
-    def test_td_wird_nicht_gerundet(self, store) -> None:
-        """Die Wesentlichkeitsschwelle 0,05 Pp. ist Sache der Bewertung, nicht der Ablage."""
+    def test_td_is_not_rounded(self, store) -> None:
+        """The materiality threshold of 0.05 pp is a matter for scoring, not for storage."""
         store.append([
-            mach_wert("tracking_differenz", Decimal("-0.0123"),
-                      periode="2025", stand=dt.date(2026, 1, 31)),
+            make_value("tracking_difference", Decimal("-0.0123"),
+                       period="2025", as_of=dt.date(2026, 1, 31)),
         ])
-        td = store.view(zeit(2026, 9, 1)).reihe(ISIN_A, "tracking_differenz")["2025"]
-        assert td.wert == Decimal("-0.0123")
+        td = store.view(ts(2026, 9, 1)).series(ISIN_A, "tracking_difference")["2025"]
+        assert td.value == Decimal("-0.0123")
 
     @pytest.mark.parametrize(
-        ("feld", "wert"),
+        ("field", "value"),
         [
-            ("fondsvolumen", Decimal("123456789012.34")),
+            ("fund_size", Decimal("123456789012.34")),
             ("xlm", Decimal("7.5")),
-            ("transaktionskosten_kid", Decimal("-0.0100")),  # Vorzeichen bleibt erhalten
+            ("transaction_costs_kid", Decimal("-0.0100")),  # the sign is kept
             ("ucits", True),
-            ("xetra_handelbar", False),
-            ("auflagedatum", dt.date(2015, 6, 1)),
-            ("domizil", "XX"),
-            ("index_name", "Platzhalter-Index"),
-            ("replikationsmethode", Replikation.SYNTHETISCH_MEHRERE_GEGENPARTEIEN),
-            ("ausschuettungsart", Ausschuettung.THESAURIEREND),
+            ("xetra_tradable", False),
+            ("inception_date", dt.date(2015, 6, 1)),
+            ("domicile", "XX"),
+            ("index_name", "Placeholder index"),
+            ("replication_method", Replication.SYNTHETIC_MULTIPLE_COUNTERPARTIES),
+            ("distribution_type", Distribution.ACCUMULATING),
         ],
     )
-    def test_jeder_typ_ueberlebt_die_datenbank(self, store, feld, wert) -> None:
-        store.append([mach_wert(feld, wert)])
-        zurueck = store.view(zeit(2026, 9, 1)).feld(ISIN_A, feld).wert
-        assert zurueck == wert
-        assert type(zurueck) is type(wert)
+    def test_every_type_survives_the_database(self, store, field, value) -> None:
+        store.append([make_value(field, value)])
+        back = store.view(ts(2026, 9, 1)).field(ISIN_A, field).value
+        assert back == value
+        assert type(back) is type(value)
 
-    def test_jedes_feld_in_felder_hat_einen_typ(self) -> None:
-        """Die Pflichtfelder aus A5.2/A5.3 sind alle registriert."""
-        pflicht = {
-            "ter", "tracking_differenz", "fondsvolumen", "replikationsmethode", "domizil",
-            "auflagedatum", "index_name", "ausschuettungsart", "ucits", "kid_sprache_de",
-            "xetra_handelbar", "transaktionskosten_kid", "xlm", "aktienfonds_invstg",
-            "waehrungsgesichert", "haltekosten",
+    def test_every_field_in_fields_has_a_type(self) -> None:
+        """The mandatory fields from A5.2/A5.3 are all registered."""
+        required = {
+            "ter", "tracking_difference", "fund_size", "replication_method", "domicile",
+            "inception_date", "index_name", "distribution_type", "ucits", "kid_language_de",
+            "xetra_tradable", "transaction_costs_kid", "xlm", "equity_fund_invstg",
+            "currency_hedged", "holding_costs",
         }
-        assert pflicht <= set(FELDER)
-        assert [f for f, typ in FELDER.items() if typ.je_jahr] == ["tracking_differenz"]
+        assert required <= set(FIELDS)
+        assert [f for f, typ in FIELDS.items() if typ.per_year] == ["tracking_difference"]
 
 
 # ---------------------------------------------------------------------------
@@ -289,114 +289,114 @@ class TestDatenbankRunde:
 
 
 class TestPointInTime:
-    def test_leere_sicht_ist_kein_fehler(self, store) -> None:
-        sicht = store.view(zeit(2026, 9, 1))
-        assert sicht.feld(ISIN_A, "ter") is None
-        assert sicht.reihe(ISIN_A, "tracking_differenz") == {}
-        assert sicht.isins() == []
+    def test_empty_view_is_not_an_error(self, store) -> None:
+        view = store.view(ts(2026, 9, 1))
+        assert view.field(ISIN_A, "ter") is None
+        assert view.series(ISIN_A, "tracking_difference") == {}
+        assert view.isins() == []
 
-    def test_factsheet_vom_august_fehlt_per_juni(self, store) -> None:
-        """Das Beispiel aus dem Auftrag: Stand 31.08., Sicht per 30.06."""
+    def test_august_factsheet_is_missing_as_of_june(self, store) -> None:
+        """The example from the brief: as-of date 31 Aug, view as of 30 Jun."""
         store.append([
-            mach_wert("fondsvolumen", Decimal("123456789"), quelle_typ=QuelleTyp.FACTSHEET,
-                      quelle_url=URL_FACTSHEET, stand=dt.date(2026, 8, 31),
-                      abgerufen_am=zeit(2026, 9, 3)),
+            make_value("fund_size", Decimal("123456789"), source_type=SourceType.FACTSHEET,
+                       source_url=URL_FACTSHEET, as_of=dt.date(2026, 8, 31),
+                       retrieved_at=ts(2026, 9, 3)),
         ])
-        assert store.view(zeit(2026, 6, 30)).feld(ISIN_A, "fondsvolumen") is None
-        assert store.view(zeit(2026, 9, 4)).feld(ISIN_A, "fondsvolumen") is not None
+        assert store.view(ts(2026, 6, 30)).field(ISIN_A, "fund_size") is None
+        assert store.view(ts(2026, 9, 4)).field(ISIN_A, "fund_size") is not None
 
-    def test_zaehlt_ab_abruf_nicht_ab_stand(self, store) -> None:
-        """Zwischen Stand und Abruf wusste die App den Wert noch nicht."""
-        store.append([mach_wert(stand=dt.date(2026, 2, 15), abgerufen_am=zeit(2026, 3, 1))])
-        assert store.view(zeit(2026, 2, 20)).feld(ISIN_A, "ter") is None
-        assert store.view(zeit(2026, 3, 2)).feld(ISIN_A, "ter") is not None
+    def test_counts_from_retrieval_not_from_as_of(self, store) -> None:
+        """Between as-of date and retrieval the app did not know the value yet."""
+        store.append([make_value(as_of=dt.date(2026, 2, 15), retrieved_at=ts(2026, 3, 1))])
+        assert store.view(ts(2026, 2, 20)).field(ISIN_A, "ter") is None
+        assert store.view(ts(2026, 3, 2)).field(ISIN_A, "ter") is not None
 
-    def test_stichtag_ist_einschliesslich(self, store) -> None:
-        store.append([mach_wert(abgerufen_am=zeit(2026, 3, 1))])
-        assert store.view(zeit(2026, 3, 1)).feld(ISIN_A, "ter") is not None
+    def test_cutoff_is_inclusive(self, store) -> None:
+        store.append([make_value(retrieved_at=ts(2026, 3, 1))])
+        assert store.view(ts(2026, 3, 1)).field(ISIN_A, "ter") is not None
 
-    def test_eine_sekunde_vorher_noch_unsichtbar(self, store) -> None:
-        store.append([mach_wert(abgerufen_am=zeit(2026, 3, 1))])
-        knapp_davor = zeit(2026, 3, 1) - dt.timedelta(seconds=1)
-        assert store.view(knapp_davor).feld(ISIN_A, "ter") is None
+    def test_one_second_before_still_invisible(self, store) -> None:
+        store.append([make_value(retrieved_at=ts(2026, 3, 1))])
+        just_before = ts(2026, 3, 1) - dt.timedelta(seconds=1)
+        assert store.view(just_before).field(ISIN_A, "ter") is None
 
-    def test_korrektur_gilt_erst_ab_ihrem_abruf(self, store) -> None:
-        """Eine korrigierte TER ist eine neue Zeile mit späterem abgerufen_am."""
-        store.append([mach_wert(wert=Decimal("0.1234"), abgerufen_am=zeit(2026, 3, 1))])
-        store.append([mach_wert(wert=Decimal("0.4321"), abgerufen_am=zeit(2026, 6, 1))])
+    def test_correction_applies_only_from_its_retrieval(self, store) -> None:
+        """A corrected TER is a new row with a later retrieved_at."""
+        store.append([make_value(value=Decimal("0.1234"), retrieved_at=ts(2026, 3, 1))])
+        store.append([make_value(value=Decimal("0.4321"), retrieved_at=ts(2026, 6, 1))])
 
-        assert store.view(zeit(2026, 4, 1)).feld(ISIN_A, "ter").wert == Decimal("0.1234")
-        assert store.view(zeit(2026, 7, 1)).feld(ISIN_A, "ter").wert == Decimal("0.4321")
+        assert store.view(ts(2026, 4, 1)).field(ISIN_A, "ter").value == Decimal("0.1234")
+        assert store.view(ts(2026, 7, 1)).field(ISIN_A, "ter").value == Decimal("0.4321")
 
-    def test_juengerer_stand_schlaegt_spaeter_erfasstes_altes_dokument(self, store) -> None:
-        """Wer das KID des Vorjahres nachträgt, verdrängt das aktuelle nicht."""
-        store.append([mach_wert(wert=Decimal("0.1111"), stand=dt.date(2026, 2, 15),
-                                abgerufen_am=zeit(2026, 3, 1))])
-        store.append([mach_wert(wert=Decimal("0.2222"), stand=dt.date(2025, 2, 10),
-                                abgerufen_am=zeit(2026, 9, 1))])
+    def test_newer_as_of_beats_older_document_recorded_later(self, store) -> None:
+        """Whoever adds last year's KID afterwards does not displace the current one."""
+        store.append([make_value(value=Decimal("0.1111"), as_of=dt.date(2026, 2, 15),
+                                 retrieved_at=ts(2026, 3, 1))])
+        store.append([make_value(value=Decimal("0.2222"), as_of=dt.date(2025, 2, 10),
+                                 retrieved_at=ts(2026, 9, 1))])
 
-        assert store.view(zeit(2026, 9, 10)).feld(ISIN_A, "ter").wert == Decimal("0.1111")
+        assert store.view(ts(2026, 9, 10)).field(ISIN_A, "ter").value == Decimal("0.1111")
 
-    def test_jedes_feld_hat_seine_eigene_herkunft(self, store) -> None:
-        """Der Kern von A5.1: TER aus dem KID, Volumen aus dem Factsheet."""
+    def test_every_field_has_its_own_provenance(self, store) -> None:
+        """The core of A5.1: TER from the KID, fund size from the factsheet."""
         store.append([
-            mach_wert("ter", Decimal("0.1234"), stand=dt.date(2026, 2, 15),
-                      abgerufen_am=zeit(2026, 3, 1)),
-            mach_wert("fondsvolumen", Decimal("123456789"), quelle_typ=QuelleTyp.FACTSHEET,
-                      quelle_url=URL_FACTSHEET, stand=dt.date(2026, 8, 31),
-                      abgerufen_am=zeit(2026, 9, 3)),
+            make_value("ter", Decimal("0.1234"), as_of=dt.date(2026, 2, 15),
+                       retrieved_at=ts(2026, 3, 1)),
+            make_value("fund_size", Decimal("123456789"), source_type=SourceType.FACTSHEET,
+                       source_url=URL_FACTSHEET, as_of=dt.date(2026, 8, 31),
+                       retrieved_at=ts(2026, 9, 3)),
         ])
-        sicht = store.view(zeit(2026, 9, 10))
-        ter = sicht.feld(ISIN_A, "ter")
-        volumen = sicht.feld(ISIN_A, "fondsvolumen")
+        view = store.view(ts(2026, 9, 10))
+        ter = view.field(ISIN_A, "ter")
+        size = view.field(ISIN_A, "fund_size")
 
-        assert (ter.quelle_url, ter.quelle_typ, ter.stand) == (
-            URL_KID, QuelleTyp.KID, dt.date(2026, 2, 15)
+        assert (ter.source_url, ter.source_type, ter.as_of) == (
+            URL_KID, SourceType.KID, dt.date(2026, 2, 15)
         )
-        assert (volumen.quelle_url, volumen.quelle_typ, volumen.stand) == (
-            URL_FACTSHEET, QuelleTyp.FACTSHEET, dt.date(2026, 8, 31)
+        assert (size.source_url, size.source_type, size.as_of) == (
+            URL_FACTSHEET, SourceType.FACTSHEET, dt.date(2026, 8, 31)
         )
-        assert ter.abgerufen_am == zeit(2026, 3, 1)
-        assert volumen.abgerufen_am == zeit(2026, 9, 3)
+        assert ter.retrieved_at == ts(2026, 3, 1)
+        assert size.retrieved_at == ts(2026, 9, 3)
 
-    def test_reihe_liefert_alle_jahre(self, store) -> None:
+    def test_series_returns_all_years(self, store) -> None:
         store.append([
-            mach_wert("tracking_differenz", Decimal(wert), periode=jahr,
-                      stand=dt.date(2026, 1, 31), abgerufen_am=zeit(2026, 2, 5))
-            for jahr, wert in (("2025", "0.0300"), ("2023", "-0.0100"), ("2024", "0.0200"))
+            make_value("tracking_difference", Decimal(value), period=year,
+                       as_of=dt.date(2026, 1, 31), retrieved_at=ts(2026, 2, 5))
+            for year, value in (("2025", "0.0300"), ("2023", "-0.0100"), ("2024", "0.0200"))
         ])
-        reihe = store.view(zeit(2026, 9, 1)).reihe(ISIN_A, "tracking_differenz")
-        assert list(reihe) == ["2023", "2024", "2025"]
-        assert [w.wert for w in reihe.values()] == [
+        series = store.view(ts(2026, 9, 1)).series(ISIN_A, "tracking_difference")
+        assert list(series) == ["2023", "2024", "2025"]
+        assert [v.value for v in series.values()] == [
             Decimal("-0.0100"), Decimal("0.0200"), Decimal("0.0300")
         ]
 
-    def test_feld_und_reihe_verwechseln_geht_nicht(self, store) -> None:
-        sicht = store.view(zeit(2026, 9, 1))
-        with pytest.raises(FeldwertValidationError, match="reihe"):
-            sicht.feld(ISIN_A, "tracking_differenz")
-        with pytest.raises(FeldwertValidationError, match="feld"):
-            sicht.reihe(ISIN_A, "ter")
+    def test_field_and_series_cannot_be_mixed_up(self, store) -> None:
+        view = store.view(ts(2026, 9, 1))
+        with pytest.raises(FieldValueValidationError, match=r"series\(\)"):
+            view.field(ISIN_A, "tracking_difference")
+        with pytest.raises(FieldValueValidationError, match=r"field\(\)"):
+            view.series(ISIN_A, "ter")
 
-    def test_instrumente_trennen_sauber(self, store) -> None:
+    def test_instruments_stay_separate(self, store) -> None:
         store.append([
-            mach_wert(isin=ISIN_A, wert=Decimal("0.1111")),
-            mach_wert(isin=ISIN_B, wert=Decimal("0.2222")),
+            make_value(isin=ISIN_A, value=Decimal("0.1111")),
+            make_value(isin=ISIN_B, value=Decimal("0.2222")),
         ])
-        sicht = store.view(zeit(2026, 9, 1))
-        assert sicht.feld(ISIN_A, "ter").wert == Decimal("0.1111")
-        assert sicht.feld(ISIN_B, "ter").wert == Decimal("0.2222")
-        assert sicht.isins() == [ISIN_A, ISIN_B]
+        view = store.view(ts(2026, 9, 1))
+        assert view.field(ISIN_A, "ter").value == Decimal("0.1111")
+        assert view.field(ISIN_B, "ter").value == Decimal("0.2222")
+        assert view.isins() == [ISIN_A, ISIN_B]
 
-    def test_isins_respektieren_den_stichtag(self, store) -> None:
-        """Auch hier einschließlich: abgerufen genau zum Stichtag ist bekannt."""
-        store.append([mach_wert(isin=ISIN_B, abgerufen_am=zeit(2026, 5, 1))])
-        assert store.view(zeit(2026, 4, 1)).isins() == []
-        assert store.view(zeit(2026, 5, 1) - dt.timedelta(seconds=1)).isins() == []
-        assert store.view(zeit(2026, 5, 1)).isins() == [ISIN_B]
+    def test_isins_respect_the_cutoff(self, store) -> None:
+        """Inclusive here too: retrieved exactly at the cut-off date is known."""
+        store.append([make_value(isin=ISIN_B, retrieved_at=ts(2026, 5, 1))])
+        assert store.view(ts(2026, 4, 1)).isins() == []
+        assert store.view(ts(2026, 5, 1) - dt.timedelta(seconds=1)).isins() == []
+        assert store.view(ts(2026, 5, 1)).isins() == [ISIN_B]
 
-    def test_sicht_braucht_tz_bewussten_stichtag(self, store) -> None:
-        with pytest.raises(FeldwertValidationError, match="zeitzonenlos"):
+    def test_view_needs_tz_aware_cutoff(self, store) -> None:
+        with pytest.raises(FieldValueValidationError, match="timezone-naive"):
             store.view(dt.datetime(2026, 9, 1))
 
 
@@ -406,303 +406,303 @@ class TestPointInTime:
 
 
 class TestAppendOnly:
-    def test_kein_update_und_kein_delete(self, store) -> None:
-        for verboten in ("update", "delete", "upsert", "remove", "truncate"):
-            assert not hasattr(store, verboten), f"{verboten}() darf es nicht geben"
+    def test_no_update_and_no_delete(self, store) -> None:
+        for forbidden in ("update", "delete", "upsert", "remove", "truncate"):
+            assert not hasattr(store, forbidden), f"{forbidden}() must not exist"
 
-    def test_korrektur_loescht_das_original_nicht(self, store) -> None:
-        store.append([mach_wert(wert=Decimal("0.1234"), abgerufen_am=zeit(2026, 3, 1))])
-        store.append([mach_wert(wert=Decimal("0.4321"), abgerufen_am=zeit(2026, 6, 1))])
+    def test_correction_does_not_delete_the_original(self, store) -> None:
+        store.append([make_value(value=Decimal("0.1234"), retrieved_at=ts(2026, 3, 1))])
+        store.append([make_value(value=Decimal("0.4321"), retrieved_at=ts(2026, 6, 1))])
 
-        assert store.zeilen_gesamt() == 2
-        historie = store.historie(ISIN_A, "ter")
-        assert list(historie["wert"]) == ["0.1234", "0.4321"]
-        assert "ingested_at" in historie.columns  # die Prüfspur zeigt alles
+        assert store.total_rows() == 2
+        history = store.history(ISIN_A, "ter")
+        assert list(history["value"]) == ["0.1234", "0.4321"]
+        assert "ingested_at" in history.columns  # the audit trail shows everything
 
-    def test_erneutes_laden_ist_idempotent(self, store) -> None:
-        """Dieselbe Quelldatei zweimal geladen: keine Doppelungen."""
-        werte = [mach_wert(), mach_wert("fondsvolumen", Decimal("123456789"))]
-        assert store.append(werte) == 2
-        assert store.append(werte) == 0
-        assert store.zeilen_gesamt() == 2
+    def test_reloading_is_idempotent(self, store) -> None:
+        """The same source file loaded twice: no duplicates."""
+        values = [make_value(), make_value("fund_size", Decimal("123456789"))]
+        assert store.append(values) == 2
+        assert store.append(values) == 0
+        assert store.total_rows() == 2
 
-    def test_rohe_dicts_werden_abgelehnt(self, store) -> None:
-        with pytest.raises(FeldwertValidationError, match="Erwartet wurde ein Feldwert"):
-            store.append([{"isin": ISIN_A, "feld": "ter", "wert": "0.1"}])  # type: ignore[list-item]
+    def test_raw_dicts_are_rejected(self, store) -> None:
+        with pytest.raises(FieldValueValidationError, match="Expected a FieldValue"):
+            store.append([{"isin": ISIN_A, "field": "ter", "value": "0.1"}])  # type: ignore[list-item]
 
-    def test_fehler_im_stapel_schreibt_nichts(self, store) -> None:
-        with pytest.raises(FeldwertValidationError):
-            store.append([mach_wert(), "kaputt"])  # type: ignore[list-item]
-        assert store.zeilen_gesamt() == 0
+    def test_error_in_batch_writes_nothing(self, store) -> None:
+        with pytest.raises(FieldValueValidationError):
+            store.append([make_value(), "broken"])  # type: ignore[list-item]
+        assert store.total_rows() == 0
 
-    def test_leeres_anhaengen_ist_erlaubt(self, store) -> None:
+    def test_empty_append_is_allowed(self, store) -> None:
         assert store.append([]) == 0
 
-    def test_tabelle_prueft_selbst(self, store) -> None:
-        """Wer an der API vorbei per SQL schreibt, scheitert an den CHECKs."""
+    def test_table_checks_itself(self, store) -> None:
+        """Whoever writes via SQL, bypassing the API, fails on the CHECKs."""
         import duckdb
 
         with pytest.raises(duckdb.ConstraintException):
             store._conn.execute(
                 """
-                INSERT INTO instrument_felder (isin, feld, periode, wert, einheit, quelle_url,
-                    quelle_typ, status, stand, abgerufen_am, ingested_at)
+                INSERT INTO instrument_fields (isin, field, period, value, unit, source_url,
+                    source_type, status, as_of, retrieved_at, ingested_at)
                 VALUES ('XX0000000002', 'ter', '', '0.1', '% p. a.', 'https://x.invalid/a.pdf',
-                        'sekundaer', 'VERIFIZIERT', DATE '2026-02-15',
+                        'secondary', 'VERIFIED', DATE '2026-02-15',
                         TIMESTAMPTZ '2026-03-01 00:00:00+00', now())
                 """
             )
 
     @pytest.mark.parametrize(
-        ("abgerufen_am", "erlaubt"),
+        ("retrieved_at", "allowed"),
         [
             ("2026-08-30 23:59:59+00", False),
-            # 31.08. 01:00 in Berlin ist 30.08. 23:00 UTC: verglichen wird in UTC,
-            # unabhängig von der Zone des Rechners.
+            # 31 Aug 01:00 in Berlin is 30 Aug 23:00 UTC: the comparison is in
+            # UTC, independent of the machine's zone.
             ("2026-08-31 01:00:00+02", False),
             ("2026-08-31 00:00:00+00", True),
         ],
     )
-    def test_tabelle_prueft_abruf_nach_stand(self, store, abgerufen_am, erlaubt) -> None:
-        """K2 auch gegen Roh-SQL: kein Abruf vor dem Stand-Datum."""
+    def test_table_checks_retrieval_after_as_of(self, store, retrieved_at, allowed) -> None:
+        """K2 against raw SQL too: no retrieval before the as-of date."""
         import duckdb
 
         sql = f"""
-            INSERT INTO instrument_felder (isin, feld, periode, wert, einheit, quelle_url,
-                quelle_typ, status, stand, abgerufen_am, ingested_at)
+            INSERT INTO instrument_fields (isin, field, period, value, unit, source_url,
+                source_type, status, as_of, retrieved_at, ingested_at)
             VALUES ('XX0000000002', 'ter', '', '0.1', '% p. a.', 'https://x.invalid/a.pdf',
-                    'kid', 'VERIFIZIERT', DATE '2026-08-31',
-                    TIMESTAMPTZ '{abgerufen_am}', now())
+                    'kid', 'VERIFIED', DATE '2026-08-31',
+                    TIMESTAMPTZ '{retrieved_at}', now())
         """
-        if erlaubt:
+        if allowed:
             store._conn.execute(sql)
-            assert store.zeilen_gesamt() == 1
+            assert store.total_rows() == 1
         else:
             with pytest.raises(duckdb.ConstraintException):
                 store._conn.execute(sql)
 
 
 # ---------------------------------------------------------------------------
-# Dauerhafte Datenbank
+# Persistent database
 # ---------------------------------------------------------------------------
 
 
-class TestPersistenz:
-    def test_werte_ueberleben_das_schliessen(self, tmp_path) -> None:
-        pfad = tmp_path / "stammdaten.duckdb"
-        with InstrumentStore(pfad) as s:
-            s.append([mach_wert("ter", Decimal("0.1234"))])
-        with InstrumentStore(pfad) as s:
-            wert = s.view(zeit(2026, 9, 1)).feld(ISIN_A, "ter")
-            assert wert.wert == Decimal("0.1234")
-            assert wert.abgerufen_am.utcoffset() == dt.timedelta(0)
+class TestPersistence:
+    def test_values_survive_closing(self, tmp_path) -> None:
+        path = tmp_path / "instruments.duckdb"
+        with InstrumentStore(path) as s:
+            s.append([make_value("ter", Decimal("0.1234"))])
+        with InstrumentStore(path) as s:
+            value = s.view(ts(2026, 9, 1)).field(ISIN_A, "ter")
+            assert value.value == Decimal("0.1234")
+            assert value.retrieved_at.utcoffset() == dt.timedelta(0)
 
 
 # ---------------------------------------------------------------------------
-# Leckage-Tests (Qualitätsstandards 3.3)
+# Leakage tests (quality standards 3.3)
 # ---------------------------------------------------------------------------
 
 
-def _alles(sicht, isins=(ISIN_A, ISIN_B)) -> dict:
-    """Jeder Wert, den eine Sicht zu den Test-ISINs liefert."""
-    ergebnis = {}
+def _everything(view, isins=(ISIN_A, ISIN_B)) -> dict:
+    """Every value a view returns for the test ISINs."""
+    result = {}
     for isin in isins:
-        for feld, typ in FELDER.items():
-            ergebnis[isin, feld] = sicht.reihe(isin, feld) if typ.je_jahr else sicht.feld(isin, feld)
-    return ergebnis
+        for field, typ in FIELDS.items():
+            result[isin, field] = view.series(isin, field) if typ.per_year else view.field(isin, field)
+    return result
 
 
-class TestLeckage:
-    def test_abschneide_test(self, store) -> None:
-        """Test 1: Die Sicht bei t bleibt gleich, egal was danach abgerufen wird."""
+class TestLeakage:
+    def test_truncation_test(self, store) -> None:
+        """Test 1: the view at t stays the same, whatever is retrieved afterwards."""
         store.append([
-            mach_wert("ter", Decimal("0.1234"), abgerufen_am=zeit(2026, 3, 1)),
-            mach_wert("tracking_differenz", Decimal("-0.0100"), periode="2025",
-                      stand=dt.date(2026, 1, 31), abgerufen_am=zeit(2026, 2, 5)),
-            mach_wert("fondsvolumen", Decimal("123456789"), quelle_typ=QuelleTyp.FACTSHEET,
-                      quelle_url=URL_FACTSHEET, stand=dt.date(2026, 5, 31),
-                      abgerufen_am=zeit(2026, 6, 3)),
+            make_value("ter", Decimal("0.1234"), retrieved_at=ts(2026, 3, 1)),
+            make_value("tracking_difference", Decimal("-0.0100"), period="2025",
+                       as_of=dt.date(2026, 1, 31), retrieved_at=ts(2026, 2, 5)),
+            make_value("fund_size", Decimal("123456789"), source_type=SourceType.FACTSHEET,
+                       source_url=URL_FACTSHEET, as_of=dt.date(2026, 5, 31),
+                       retrieved_at=ts(2026, 6, 3)),
         ])
-        stichtag = zeit(2026, 6, 30)
-        vorher = _alles(store.view(stichtag))
-        isins_vorher = store.view(stichtag).isins()
+        cutoff = ts(2026, 6, 30)
+        before = _everything(store.view(cutoff))
+        isins_before = store.view(cutoff).isins()
 
-        # Später abgerufen: Korrektur eines sichtbaren Werts, neues Factsheet,
-        # neues Jahr, neues Instrument.
+        # Retrieved later: correction of a visible value, new factsheet,
+        # new year, new instrument.
         store.append([
-            mach_wert("ter", Decimal("0.9999"), abgerufen_am=zeit(2026, 7, 1)),
-            mach_wert("fondsvolumen", Decimal("987654321"), quelle_typ=QuelleTyp.FACTSHEET,
-                      quelle_url=URL_FACTSHEET, stand=dt.date(2026, 8, 31),
-                      abgerufen_am=zeit(2026, 9, 3)),
-            mach_wert("tracking_differenz", Decimal("0.0500"), periode="2025",
-                      stand=dt.date(2026, 8, 31), abgerufen_am=zeit(2026, 9, 3)),
-            mach_wert("tracking_differenz", Decimal("0.0700"), periode="2026",
-                      stand=dt.date(2026, 12, 31), abgerufen_am=zeit(2027, 1, 20)),
-            mach_wert(isin=ISIN_B, abgerufen_am=zeit(2026, 7, 2)),
+            make_value("ter", Decimal("0.9999"), retrieved_at=ts(2026, 7, 1)),
+            make_value("fund_size", Decimal("987654321"), source_type=SourceType.FACTSHEET,
+                       source_url=URL_FACTSHEET, as_of=dt.date(2026, 8, 31),
+                       retrieved_at=ts(2026, 9, 3)),
+            make_value("tracking_difference", Decimal("0.0500"), period="2025",
+                       as_of=dt.date(2026, 8, 31), retrieved_at=ts(2026, 9, 3)),
+            make_value("tracking_difference", Decimal("0.0700"), period="2026",
+                       as_of=dt.date(2026, 12, 31), retrieved_at=ts(2027, 1, 20)),
+            make_value(isin=ISIN_B, retrieved_at=ts(2026, 7, 2)),
         ])
 
-        assert _alles(store.view(stichtag)) == vorher
-        assert store.view(stichtag).isins() == isins_vorher
+        assert _everything(store.view(cutoff)) == before
+        assert store.view(cutoff).isins() == isins_before
 
-    def test_zukunfts_stoertest(self, store) -> None:
-        """Test 2: Absurde Werte nach t dürfen die Sicht bis t nicht rühren."""
+    def test_future_perturbation_test(self, store) -> None:
+        """Test 2: absurd values after t must not stir the view up to t."""
         store.append([
-            mach_wert("ter", Decimal("0.1234"), abgerufen_am=zeit(2026, 3, 1)),
-            mach_wert("fondsvolumen", Decimal("123456789"), abgerufen_am=zeit(2026, 3, 1)),
+            make_value("ter", Decimal("0.1234"), retrieved_at=ts(2026, 3, 1)),
+            make_value("fund_size", Decimal("123456789"), retrieved_at=ts(2026, 3, 1)),
         ])
-        stichtag = zeit(2026, 6, 30)
-        vorher = _alles(store.view(stichtag))
+        cutoff = ts(2026, 6, 30)
+        before = _everything(store.view(cutoff))
 
-        for tag in range(1, 20):
+        for day in range(1, 20):
             store.append([
-                mach_wert("ter", Decimal(1000 + tag), abgerufen_am=zeit(2026, 7, tag)),
-                mach_wert("fondsvolumen", Decimal(-tag), abgerufen_am=zeit(2026, 7, tag)),
+                make_value("ter", Decimal(1000 + day), retrieved_at=ts(2026, 7, day)),
+                make_value("fund_size", Decimal(-day), retrieved_at=ts(2026, 7, day)),
             ])
 
-        assert _alles(store.view(stichtag)) == vorher
+        assert _everything(store.view(cutoff)) == before
 
-    def test_kein_zugang_zur_rohen_tabelle(self, store) -> None:
-        sicht = store.view(zeit(2026, 9, 1))
-        oeffentlich = {n for n in dir(sicht) if not n.startswith("_")}
-        assert oeffentlich == {"as_of", "feld", "reihe", "isins"}
+    def test_no_access_to_the_raw_table(self, store) -> None:
+        view = store.view(ts(2026, 9, 1))
+        public = {n for n in dir(view) if not n.startswith("_")}
+        assert public == {"as_of", "field", "series", "isins"}
 
     @settings(max_examples=60, deadline=None)
     @given(
-        zeilen=st.lists(
+        rows=st.lists(
             st.tuples(
                 st.sampled_from([ISIN_A, ISIN_B]),
-                st.sampled_from(["ter", "fondsvolumen", "tracking_differenz"]),
-                st.integers(min_value=0, max_value=500),  # Stand: Tage nach 01.01.2024
-                st.integers(min_value=0, max_value=90),  # Abruf: Tage nach dem Stand
-                st.integers(min_value=-9999, max_value=9999),  # Wert in Zehntausendsteln
+                st.sampled_from(["ter", "fund_size", "tracking_difference"]),
+                st.integers(min_value=0, max_value=500),  # as-of: days after 2024-01-01
+                st.integers(min_value=0, max_value=90),  # retrieval: days after the as-of date
+                st.integers(min_value=-9999, max_value=9999),  # value in ten-thousandths
             ),
             min_size=1,
             max_size=25,
         ),
-        stichtag_tag=st.integers(min_value=0, max_value=620),
+        cutoff_day=st.integers(min_value=0, max_value=620),
     )
-    def test_abschneiden_aendert_nichts(self, zeilen, stichtag_tag) -> None:
-        """Abschneide-Test als Eigenschaft: Sicht auf alles == Sicht auf das Bekannte.
+    def test_truncation_changes_nothing(self, rows, cutoff_day) -> None:
+        """Truncation test as a property: view of everything == view of what was known.
 
-        Speicher A hat jede Zeile, Speicher B nur die bis zum Stichtag
-        abgerufenen. Hypothesis sucht die Datenlage, in der sich beide Sichten
-        unterscheiden — dann hätte die Zukunft die Vergangenheit verändert.
+        Store A has every row, store B only those retrieved up to the cut-off
+        date. Hypothesis searches for the data in which the two views differ
+        — then the future would have changed the past.
         """
-        basis = dt.date(2024, 1, 1)
-        stichtag = zeit(2024, 1, 1) + dt.timedelta(days=stichtag_tag)
-        werte = []
-        for isin, feld, stand_tag, verzug, zehntausendstel in zeilen:
-            stand = basis + dt.timedelta(days=stand_tag)
-            werte.append(
-                mach_wert(
-                    feld,
-                    Decimal(zehntausendstel).scaleb(-4),
+        base = dt.date(2024, 1, 1)
+        cutoff = ts(2024, 1, 1) + dt.timedelta(days=cutoff_day)
+        values = []
+        for isin, field, as_of_day, delay, ten_thousandths in rows:
+            as_of = base + dt.timedelta(days=as_of_day)
+            values.append(
+                make_value(
+                    field,
+                    Decimal(ten_thousandths).scaleb(-4),
                     isin=isin,
-                    stand=stand,
-                    abgerufen_am=zeit(stand.year, stand.month, stand.day)
-                    + dt.timedelta(days=verzug),
-                    periode=str(stand.year - 1) if feld == "tracking_differenz" else "",
+                    as_of=as_of,
+                    retrieved_at=ts(as_of.year, as_of.month, as_of.day)
+                    + dt.timedelta(days=delay),
+                    period=str(as_of.year - 1) if field == "tracking_difference" else "",
                 )
             )
 
-        with InstrumentStore(":memory:") as voll, InstrumentStore(":memory:") as bekannt:
-            voll.append(werte)
-            bekannt.append([w for w in werte if w.abgerufen_am <= stichtag])
+        with InstrumentStore(":memory:") as full, InstrumentStore(":memory:") as known:
+            full.append(values)
+            known.append([v for v in values if v.retrieved_at <= cutoff])
 
-            sicht = voll.view(stichtag)
-            assert _alles(sicht) == _alles(bekannt.view(stichtag))
-            assert sicht.isins() == bekannt.view(stichtag).isins()
-            for wert in _alles(sicht).values():
-                for einzel in wert.values() if isinstance(wert, dict) else [wert]:
-                    if einzel is not None:
-                        assert einzel.abgerufen_am <= stichtag
+            view = full.view(cutoff)
+            assert _everything(view) == _everything(known.view(cutoff))
+            assert view.isins() == known.view(cutoff).isins()
+            for value in _everything(view).values():
+                for single in value.values() if isinstance(value, dict) else [value]:
+                    if single is not None:
+                        assert single.retrieved_at <= cutoff
 
 
 # ---------------------------------------------------------------------------
-# Quelldatei
+# Source file
 # ---------------------------------------------------------------------------
 
 
-def _schreibe(tmp_path, dokumente) -> str:
-    pfad = tmp_path / "stammdaten.json"
-    pfad.write_text(json.dumps({"dokumente": dokumente}), encoding="utf-8")
-    return pfad
+def _write(tmp_path, documents) -> str:
+    path = tmp_path / "instruments.json"
+    path.write_text(json.dumps({"documents": documents}), encoding="utf-8")
+    return path
 
 
-KID_DOKUMENT = {
+KID_DOCUMENT = {
     "isin": ISIN_A,
-    "quelle_typ": "kid",
-    "quelle_url": URL_KID,
-    "stand": "2026-02-15",
-    "abgerufen_am": "2026-03-01T10:00:00+01:00",
-    "status": "VERIFIZIERT",
-    "werte": {"ter": 0.1234, "ucits": True, "domizil": "XX"},
+    "source_type": "kid",
+    "source_url": URL_KID,
+    "as_of": "2026-02-15",
+    "retrieved_at": "2026-03-01T10:00:00+01:00",
+    "status": "VERIFIED",
+    "values": {"ter": 0.1234, "ucits": True, "domicile": "XX"},
 }
 
-FACTSHEET_DOKUMENT = {
+FACTSHEET_DOCUMENT = {
     "isin": ISIN_A,
-    "quelle_typ": "factsheet",
-    "quelle_url": URL_FACTSHEET,
-    "stand": "2026-08-31",
-    "abgerufen_am": "2026-09-03T08:00:00+00:00",
-    "status": "UNVERIFIZIERT",
-    "werte": {
-        "fondsvolumen": 123456789.01,
-        "tracking_differenz": {"2024": -0.0123, "2025": 0.0456},
+    "source_type": "factsheet",
+    "source_url": URL_FACTSHEET,
+    "as_of": "2026-08-31",
+    "retrieved_at": "2026-09-03T08:00:00+00:00",
+    "status": "UNVERIFIED",
+    "values": {
+        "fund_size": 123456789.01,
+        "tracking_difference": {"2024": -0.0123, "2025": 0.0456},
     },
 }
 
 
-class TestQuelldatei:
-    def test_jedes_dokument_vererbt_seine_herkunft(self, tmp_path) -> None:
-        werte = lade_quelldatei(_schreibe(tmp_path, [KID_DOKUMENT, FACTSHEET_DOKUMENT]))
-        nach_feld = {(w.feld, w.periode): w for w in werte}
+class TestSourceFile:
+    def test_every_document_passes_on_its_provenance(self, tmp_path) -> None:
+        values = load_source_file(_write(tmp_path, [KID_DOCUMENT, FACTSHEET_DOCUMENT]))
+        by_field = {(v.field, v.period): v for v in values}
 
-        assert len(werte) == 6  # 3 aus dem KID, 1 Volumen + 2 Jahreswerte aus dem Factsheet
-        assert nach_feld["ter", ""].quelle_url == URL_KID
-        assert nach_feld["ter", ""].stand == dt.date(2026, 2, 15)
-        assert nach_feld["ter", ""].abgerufen_am == zeit(2026, 3, 1, 9)
-        assert nach_feld["fondsvolumen", ""].quelle_typ is QuelleTyp.FACTSHEET
-        assert nach_feld["fondsvolumen", ""].status is Pruefstatus.UNVERIFIZIERT
-        assert nach_feld["tracking_differenz", "2024"].stand == dt.date(2026, 8, 31)
+        assert len(values) == 6  # 3 from the KID, 1 fund size + 2 annual values from the factsheet
+        assert by_field["ter", ""].source_url == URL_KID
+        assert by_field["ter", ""].as_of == dt.date(2026, 2, 15)
+        assert by_field["ter", ""].retrieved_at == ts(2026, 3, 1, 9)
+        assert by_field["fund_size", ""].source_type is SourceType.FACTSHEET
+        assert by_field["fund_size", ""].status is VerificationStatus.UNVERIFIED
+        assert by_field["tracking_difference", "2024"].as_of == dt.date(2026, 8, 31)
 
-    def test_zahlen_werden_nie_float(self, tmp_path) -> None:
-        """JSON kennt nur float — der Loader liest trotzdem Decimal."""
-        werte = lade_quelldatei(_schreibe(tmp_path, [KID_DOKUMENT, FACTSHEET_DOKUMENT]))
-        nach_feld = {(w.feld, w.periode): w.wert for w in werte}
-        assert nach_feld["ter", ""] == Decimal("0.1234")
-        assert nach_feld["fondsvolumen", ""] == Decimal("123456789.01")
-        assert nach_feld["tracking_differenz", "2024"] == Decimal("-0.0123")
+    def test_numbers_never_become_float(self, tmp_path) -> None:
+        """JSON only knows float — the loader reads Decimal nonetheless."""
+        values = load_source_file(_write(tmp_path, [KID_DOCUMENT, FACTSHEET_DOCUMENT]))
+        by_field = {(v.field, v.period): v.value for v in values}
+        assert by_field["ter", ""] == Decimal("0.1234")
+        assert by_field["fund_size", ""] == Decimal("123456789.01")
+        assert by_field["tracking_difference", "2024"] == Decimal("-0.0123")
 
-    def test_datei_landet_im_store(self, tmp_path, store) -> None:
-        store.append(lade_quelldatei(_schreibe(tmp_path, [KID_DOKUMENT, FACTSHEET_DOKUMENT])))
-        sicht = store.view(zeit(2026, 9, 10))
-        assert sicht.feld(ISIN_A, "ucits").wert is True
-        assert list(sicht.reihe(ISIN_A, "tracking_differenz")) == ["2024", "2025"]
+    def test_file_ends_up_in_the_store(self, tmp_path, store) -> None:
+        store.append(load_source_file(_write(tmp_path, [KID_DOCUMENT, FACTSHEET_DOCUMENT])))
+        view = store.view(ts(2026, 9, 10))
+        assert view.field(ISIN_A, "ucits").value is True
+        assert list(view.series(ISIN_A, "tracking_difference")) == ["2024", "2025"]
 
-    def test_zeitzonenloser_abruf_nennt_das_dokument(self, tmp_path) -> None:
-        kaputt = {**FACTSHEET_DOKUMENT, "abgerufen_am": "2026-09-03T08:00:00"}
-        with pytest.raises(FeldwertValidationError, match="Dokument 2.*zeitzonenlos"):
-            lade_quelldatei(_schreibe(tmp_path, [KID_DOKUMENT, kaputt]))
+    def test_naive_retrieval_names_the_document(self, tmp_path) -> None:
+        broken = {**FACTSHEET_DOCUMENT, "retrieved_at": "2026-09-03T08:00:00"}
+        with pytest.raises(FieldValueValidationError, match="Document 2.*timezone-naive"):
+            load_source_file(_write(tmp_path, [KID_DOCUMENT, broken]))
 
-    def test_vertippter_schluessel_wird_gemeldet(self, tmp_path) -> None:
-        kaputt = {k: v for k, v in KID_DOKUMENT.items() if k != "quelle_url"}
-        kaputt["quelle_ulr"] = URL_KID
-        with pytest.raises(FeldwertValidationError, match="quelle_ulr"):
-            lade_quelldatei(_schreibe(tmp_path, [kaputt]))
+    def test_mistyped_key_is_reported(self, tmp_path) -> None:
+        broken = {k: v for k, v in KID_DOCUMENT.items() if k != "source_url"}
+        broken["source_ulr"] = URL_KID
+        with pytest.raises(FieldValueValidationError, match="source_ulr"):
+            load_source_file(_write(tmp_path, [broken]))
 
-    def test_unbekanntes_feld_wird_gemeldet(self, tmp_path) -> None:
-        kaputt = {**KID_DOKUMENT, "werte": {"terr": 0.1}}
-        with pytest.raises(FeldwertValidationError, match="Dokument 1.*terr"):
-            lade_quelldatei(_schreibe(tmp_path, [kaputt]))
+    def test_unknown_field_is_reported(self, tmp_path) -> None:
+        broken = {**KID_DOCUMENT, "values": {"terr": 0.1}}
+        with pytest.raises(FieldValueValidationError, match="Document 1.*terr"):
+            load_source_file(_write(tmp_path, [broken]))
 
-    def test_jahreswert_ohne_jahr_wird_gemeldet(self, tmp_path) -> None:
-        kaputt = {**FACTSHEET_DOKUMENT, "werte": {"tracking_differenz": 0.01}}
-        with pytest.raises(FeldwertValidationError, match="Jahreswert"):
-            lade_quelldatei(_schreibe(tmp_path, [kaputt]))
+    def test_annual_value_without_year_is_reported(self, tmp_path) -> None:
+        broken = {**FACTSHEET_DOCUMENT, "values": {"tracking_difference": 0.01}}
+        with pytest.raises(FieldValueValidationError, match="annual value"):
+            load_source_file(_write(tmp_path, [broken]))
 
-    def test_falsche_grundform_wird_gemeldet(self, tmp_path) -> None:
-        pfad = tmp_path / "falsch.json"
-        pfad.write_text(json.dumps([KID_DOKUMENT]), encoding="utf-8")
-        with pytest.raises(FeldwertValidationError, match="dokumente"):
-            lade_quelldatei(pfad)
+    def test_wrong_top_level_shape_is_reported(self, tmp_path) -> None:
+        path = tmp_path / "wrong.json"
+        path.write_text(json.dumps([KID_DOCUMENT]), encoding="utf-8")
+        with pytest.raises(FieldValueValidationError, match="documents"):
+            load_source_file(path)
