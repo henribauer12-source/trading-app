@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 400" role="img" aria-label="Trading-Analyse-App — evidence-based signals, local-first, data budget 0 €">
+  <!-- Identity: calm, evidence-based, no hype. Ledger-paper grid, one muted blue line
+       drawing itself over a dashed benchmark (the ETF), and "no signal" shown as a
+       normal state. No candles, no rockets, no green/red drama. -->
+  <defs>
+    <pattern id="ledger" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M44 0H0V44" fill="none" stroke="#1F2937" stroke-opacity=".05" stroke-width="1"/>
+    </pattern>
+    <filter id="dotPulse" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="2"/>
+    </filter>
+  </defs>
+
+  <!-- Paper -->
+  <rect width="1500" height="400" fill="#FBFBF9"/>
+  <rect width="1500" height="400" fill="url(#ledger)"/>
+
+  <!-- ===== Wordmark ===== -->
+  <text x="90" y="168" font-family="Newsreader, Georgia, 'Times New Roman', serif" font-size="56" font-weight="500" letter-spacing="-0.5" fill="#23272E">Trading-Analyse-App</text>
+  <text x="92" y="212" font-family="Newsreader, Georgia, 'Times New Roman', serif" font-size="24" fill="#4B515A">Evidence before excitement.</text>
+  <text x="92" y="250" font-family="ui-monospace, 'JetBrains Mono', Menlo, monospace" font-size="15" fill="#7A7E86">local-first &#183; data budget 0 &#8364; &#183; not investment advice</text>
+
+  <!-- ===== Chart ===== -->
+  <!-- benchmark: the broad ETF, dashed grey, slow and boring on purpose -->
+  <path d="M 660 252 C 840 240 1100 218 1410 196" fill="none" stroke="#B7BCC3" stroke-width="2.5" stroke-dasharray="7 8" stroke-linecap="round"/>
+
+  <!-- the strategy line: quiet, wiggly, crosses the benchmark once, stays modest -->
+  <path id="sig" d="M 660 276 C 720 284 760 268 810 270 C 870 273 900 252 960 250 C 1010 249 1040 224 1090 216 C 1160 205 1240 192 1320 182 C 1355 178 1385 174 1410 172"
+        fill="none" stroke="#56789A" stroke-width="3" stroke-linecap="round"
+        stroke-dasharray="880" stroke-dashoffset="880">
+    <animate attributeName="stroke-dashoffset" values="880;0" dur="5s" begin="0.4s" fill="freeze" calcMode="spline" keySplines="0.4 0 0.2 1" keyTimes="0;1"/>
+  </path>
+
+  <!-- signal dot 1: where the line crosses the benchmark -->
+  <circle cx="1043" cy="221" r="5" fill="#56789A" opacity="0">
+    <animate attributeName="opacity" values="0;1" dur="0.5s" begin="3.1s" fill="freeze"/>
+  </circle>
+  <!-- signal dot 2: a later, calmer entry -->
+  <circle cx="1268" cy="188" r="5" fill="#56789A" opacity="0">
+    <animate attributeName="opacity" values="0;1" dur="0.5s" begin="4.2s" fill="freeze"/>
+  </circle>
+
+  <!-- last dot breathes: the only looping element besides nothing -->
+  <circle cx="1410" cy="172" r="10" fill="#56789A" opacity="0">
+    <animate attributeName="opacity" values="0;.0" dur="0.1s" begin="5.2s" fill="freeze"/>
+  </circle>
+  <circle cx="1410" cy="172" r="10" fill="none" stroke="#56789A" stroke-width="2" opacity="0">
+    <animate attributeName="opacity" values="0;.7;0" dur="0.1s" begin="5.2s" fill="freeze"/>
+    <animate attributeName="r" values="7;16;7" dur="3.2s" begin="5.3s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;.6;0" dur="3.2s" begin="5.3s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="1410" cy="172" r="4.5" fill="#56789A" opacity="0">
+    <animate attributeName="opacity" values="0;1" dur="0.4s" begin="5.2s" fill="freeze"/>
+  </circle>
+
+  <!-- benchmark caption -->
+  <text x="1410" y="228" text-anchor="end" font-family="ui-monospace, 'JetBrains Mono', Menlo, monospace" font-size="14" fill="#9AA0A8">benchmark: broad ETF</text>
+
+  <!-- the no-signal state, drawn as a normal condition -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;1" dur="0.8s" begin="1.2s" fill="freeze"/>
+    <rect x="660" y="94" width="238" height="34" rx="17" fill="#FFFFFF" fill-opacity=".8" stroke="#1F2937" stroke-opacity=".12"/>
+    <circle cx="684" cy="111" r="4.5" fill="none" stroke="#9AA0A8" stroke-width="2"/>
+    <text x="700" y="116" font-family="ui-monospace, 'JetBrains Mono', Menlo, monospace" font-size="14" fill="#7A7E86">no signal is a normal state</text>
+  </g>
+</svg>

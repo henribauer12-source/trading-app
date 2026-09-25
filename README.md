@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="img/banner.svg" alt="Trading-Analyse-App — evidence-based signals, local-first, data budget 0 €" width="100%">
+</p>
+
 # Trading-Analyse-App
 
 A private, local analysis tool. Evidence-based signals (long-term, swing, intraday), market
