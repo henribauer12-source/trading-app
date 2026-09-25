@@ -37,14 +37,14 @@ independently reviewed; the bitemporal data layer now exists in code.
 | 9 | Paper trading, ≥ 3 months, no real money | planned |
 | 10 | Execution adapter (optional, off by default) | planned |
 
-Detailed gates per phase: `docs/20260925_trading-app-plan-v9.md` §6.
+Detailed gates per phase: `docs/20260925_trading-app-plan-v9_en.md` §6.
 
 ---
 
 ## The investment adviser
 
 This is the part the whole project is now organised around. It is specified in full in
-`docs/20260925_anlage-spezifikation.md` (A1–A15, English reading copy alongside it).
+`docs/20260925_anlage-spezifikation_en.md` (A1–A15; binding in English, German original archived).
 
 ### Three competing limits — the lowest wins
 
@@ -79,8 +79,8 @@ it stays off. Switching is only free in a backtest.
 ### The tax engine
 
 The most demanding module in the project. German capital-gains tax (`ESt = (e − 4q) / (4 + k)`),
-the Vorabpauschale, partial exemption under InvStG 2018, Günstigerprüfung, NV-Bescheinigung, loss
-pots, § 23 EStG for gold, and a tax-optimised sale ordering. Throughout in **`Decimal`, never
+the Vorabpauschale, Teilfreistellung under InvStG 2018, Günstigerprüfung, NV-Bescheinigung,
+Verlusttöpfe, § 23 EStG for gold, and a tax-optimised sale ordering. Throughout in **`Decimal`, never
 `float`** — bank withholding and assessment differ by a cent, and the spec documents both.
 
 The spec requires **external review by a tax adviser before productive use.**
@@ -93,7 +93,7 @@ displayed in **today's euros**. No "8 % per year" line.
 ### ETF selection (A5) and its data
 
 Hard filters first (UCITS, German KID, Xetra-tradeable, fund size ≥ 100 m €, ≥ 3 full calendar
-years, equity-fund definition under § 2 (6) InvStG), then a score on **fixed absolute scales** —
+years, Aktienfonds definition under § 2 Abs. 6 InvStG), then a score on **fixed absolute scales** —
 not min-max normalisation, so adding one fund does not reshuffle the others. Weights: net cost
 (tracking difference, 3-year mean) 40 %, fund size 20 %, liquidity 10 %, structure and
 counterparty risk 10 %, TD stability 5 %, history 5 %, KID transaction costs 5 %, user preference

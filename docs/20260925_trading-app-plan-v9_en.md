@@ -1,20 +1,22 @@
 ---
 title: Trading Analysis App – Project Plan
 date: 20260925
-status: Draft v9 (replaces v8; basis: 20260925_anlage-spezifikation.md, 20260924_trading-app-qualitaetsstandards.md, 20260925_rechenkern-spezifikation-v1.4.md, 20260925_strategie-katalog.md (v1.2), 20260924_trading-app-research.md)
+status: Draft v9 (replaces v8; basis: 20260925_anlage-spezifikation_en.md, 20260924_trading-app-qualitaetsstandards.md, 20260925_rechenkern-spezifikation-v1.4.md, 20260925_strategie-katalog_en.md (v1.2), 20260924_trading-app-research.md)
 owner: Henri
 language: en
-translation_of: 20260925_trading-app-plan-v9.md
-binding: German original
+binding: this English text (since 20260925)
+supersedes: archive/20260925_trading-app-plan-v9.md (German original, no longer binding)
 ---
 
 # Trading Analysis App – Project Plan v9
 
+**Binding text.** This English document is the binding project plan. The German original is archived in `archive/20260925_trading-app-plan-v9.md` and no longer binding. German tax and legal terms are kept as proper nouns; everything the user sees in the app is English (20260925, no rule change).
+
 ## Changes compared with v8
 
-- **New core module "Anlegen" (Invest)** (investment adviser for long-term and medium- to long-term investments), fully specified in `20260925_anlage-spezifikation.md`: profile and goals, order of finances, equity share per goal, building blocks, concrete ETF selection, savings plan and tax-optimised rebalancing, German tax engine, projection, monthly recommendation, investment policy statement, behavioural guardrails, retirement-provision notes
+- **New core module "Anlegen" (Invest)** (investment adviser for long-term and medium- to long-term investments), fully specified in `20260925_anlage-spezifikation_en.md`: profile and goals, order of finances, equity share per goal, building blocks, concrete ETF selection, savings plan and tax-optimised rebalancing, German tax engine, projection, monthly recommendation, investment policy statement, behavioural guardrails, retirement-provision notes
 - The previous long-term module (L1–L4) becomes part of "Anlegen": L1 is the base portfolio, L2–L4 and S1 are optional overlays with an additional after-tax gate
-- Information architecture: "Anlegen" is the first main area; the "Übersicht" (Overview) page leads with the monthly recommendation
+- Information architecture: "Anlegen" is the first main area; the "Overview" page leads with the monthly recommendation
 - Consistency cleaned up: architecture diagram updated to the v9 areas, unlocking of leverage (phase 5) and options (phase 7), area of the prediction engine (Trading)
 - Roadmap: the first usable version (phases 1, 2, 3) is the investment adviser; trading, simulator, options and Prediction Engine follow **at unchanged depth**
 
@@ -71,12 +73,12 @@ A private analysis tool with a clear core: **Every month it tells you what you s
 
 | Module | Purpose | Cadence |
 |---|---|---|
-| **Anlegen (core)** | Investment adviser: profile and goals, equity share per goal, concrete ETFs, savings plan, tax-optimised rebalancing, projection, monthly recommendation, investment policy statement; base portfolio L1 plus optional overlays L2–L4, S1 (`20260925_anlage-spezifikation.md`) | Monthly and on events |
+| **Anlegen (core)** | Investment adviser: profile and goals, equity share per goal, concrete ETFs, savings plan, tax-optimised rebalancing, projection, monthly recommendation, investment policy statement; base portfolio L1 plus optional overlays L2–L4, S1 (`20260925_anlage-spezifikation_en.md`) | Monthly and on events |
 | Trading | Swing and intraday signals for gold/commodities, stocks, ETFs/ETCs, futures, CFDs | Swing: hourly to daily; intraday: minute bars |
 | Market intelligence | Media, experts, insiders, filings, macro as context, warnings and small tilts | Daily/weekly |
 | Options | Valuation of individual contracts and defined-risk strategies (locked until learning path completed) | On demand and daily |
 | Learning | Explanation of every signal, learning path, quiz, trading journal, unlocking of functions, **simulator** (practice depot on real prices) | Ongoing |
-| Prediction Engine | Stock ranking with a calibrated probability of performing better than the median of the large stocks over 1–3 months ("Trading" area, "Aktien-Ranking" (stock ranking) subpage) | Monthly |
+| Prediction Engine | Stock ranking with a calibrated probability of performing better than the median of the large stocks over 1–3 months ("Trading" area, "Stock ranking" subpage) | Monthly |
 
 Out of scope: crypto, passing on to third parties (would become relevant to BaFin), fully automated order execution. Execution is prepared but deactivated (section 4.10).
 
@@ -125,7 +127,7 @@ Out of scope: crypto, passing on to third parties (would become relevant to BaFi
 
 ```
 ┌──────────────────────────── Dashboard (Streamlit, localhost) ────────────────────────────┐
-│ Übersicht │ Anlegen │ Trading │ Portfolio │ Markt │ Optionen │ Lernen │ Evidenz            │
+│ Overview │ Anlegen │ Trading │ Portfolio │ Market │ Options │ Learn │ Evidence             │
 └───────────────────────────────────────────┬──────────────────────────────────────────────┘
                                             │
 ┌──────────────┐   ┌────────────────────────┴───────────────────────┐   ┌──────────────────┐
@@ -171,14 +173,14 @@ A strategy or a tilt only goes live when all checks have been passed:
 
 ### 4.5 Core module Anlegen and trading module
 
-**Anlegen (core)** is fully specified in `20260925_anlage-spezifikation.md`. Summary of the process:
+**Anlegen (core)** is fully specified in `20260925_anlage-spezifikation_en.md`. Summary of the process:
 1. **Profile and goals** following the structure of the ESMA suitability guidelines, with the loss question in euros instead of self-assessment
 2. **Order of finances:** expensive debt, emergency fund, then investing
 3. **Equity share per goal** = minimum of the horizon, capacity and tolerance limits
 4. **Building blocks:** world equities at market weight plus a safety building block; satellites (gold, factors, individual stocks, tactics) together at most 20 % of the risk budget
 5. **Concrete ETFs** via hard filters and a transparent scoring (tracking difference before TER), from a candidate list maintained in accordance with the rules
-6. **Savings plan** with cash-flow rebalancing, annual review, tax-optimised sales, use of the saver's allowance (Sparer-Pauschbetrag)
-7. **Tax engine** for Germany (flat withholding tax (Abgeltungsteuer), most-favourable-assessment test (Günstigerprüfung), NV-Bescheinigung (non-assessment certificate), partial exemption (Teilfreistellung), advance lump sum (Vorabpauschale), gold under § 23, loss pots)
+6. **Savings plan** with cash-flow rebalancing, annual review, tax-optimised sales, use of the Sparer-Pauschbetrag (saver's allowance)
+7. **Tax engine** for Germany (Abgeltungsteuer (flat withholding tax), Günstigerprüfung (most-favourable-assessment test), NV-Bescheinigung (non-assessment certificate), Teilfreistellung (partial exemption), Vorabpauschale (advance lump sum), gold under § 23, Verlusttöpfe (loss pots))
 8. **Projection** via block bootstrap from multi-country history, centred on conservative assumptions, in today's euros
 9. **Monthly recommendation**, **investment policy statement (IPS)**, **behavioural guardrails**, **retirement-provision notes**
 
@@ -203,8 +205,8 @@ The base portfolio corresponds to strategy L1; L2–L4 and S1 are optional overl
 |---|---|---|
 | Tilt (small, capped) | Opportunistic insider purchases, weekly negative news tone | Max. ±10–20 % change in the position size of an existing signal, never a signal of its own (the cap is set in the backtest) |
 | Watchlist | Selected 13F positions | Candidates for the strategy engine |
-| Risk warning | Attention spikes in social media, TV/forum hype, extreme media pessimism, recycled commodity news | Notice "nicht hinterherlaufen / Umkehr möglich" (don't chase / reversal possible) |
-| Context | Analyst consensus, strategist/guru statements, macro news | Display "Was gesagt wird" (What is being said), without influence on signals |
+| Risk warning | Attention spikes in social media, TV/forum hype, extreme media pessimism, recycled commodity news | Notice "don't chase / reversal possible" |
+| Context | Analyst consensus, strategist/guru statements, macro news | Display "What is being said", without influence on signals |
 | Excluded as input | TV tips, newsletters, WallStreetBets, price targets | Not shown or only with a warning notice |
 
 5. **Expert scorecard:** every logged expert statement with a clear direction (source, asset, direction, horizon, timestamp) is automatically evaluated against the outcome and a benchmark. After enough observations the app shows a hit rate with confidence interval per source. A source is only given weight if it passes the test live.
@@ -223,7 +225,7 @@ The base portfolio corresponds to strategy L1; L2–L4 and S1 are optional overl
 4. Fair value with own forecast; tradable edge after bid/ask, fees and model-error buffer
 5. Monte Carlo distribution: expected value after spread, probability of profit (risk-neutral and real-world side by side), CVaR 95 %
 6. Maximum loss and stress tests (price ±5–30 %, IV ±, IV crush, historical replays), early-exercise check
-7. Decision: Go / Warnung (Warning) / Block (details in research section 4.4)
+7. Decision: Go / Warning / Block (details in research section 4.4)
 
 **Starter set:** covered calls, cash-secured index puts, vertical spreads with defined risk, protective puts as insurance.
 
@@ -250,13 +252,13 @@ Activation only after ≥ 3 months of successful paper trading, initially in the
 
 The tool is meant to teach you trading and long-term investing. It is built so that learning and using interlock:
 
-**1. Every signal explains itself.** Next to every signal there is a "Warum?" (Why?) panel: which rule triggered, the evidence behind it (study, evidence grade), the risk in euros at your capital and what the signal does *not* know. Technical terms are linked to a glossary.
+**1. Every signal explains itself.** Next to every signal there is a "Why?" panel: which rule triggered, the evidence behind it (study, evidence grade), the risk in euros at your capital and what the signal does *not* know. Technical terms are linked to a glossary.
 
 **2. Learning path with unlocking.** Functions are only unlocked after the matching lesson and a short quiz:
 
 | Stage | Content | Unlocks |
 |---|---|---|
-| 1: Foundations | Return and risk, order of finances (debt, emergency fund), diversification, costs and tracking difference, compound interest, savings plan, world portfolio with UCITS ETFs, taxes (flat withholding tax, saver's allowance, partial exemption, advance lump sum, Anlage KAP), investment policy statement | Core module Anlegen (base portfolio, savings plan, projection) |
+| 1: Foundations | Return and risk, order of finances (debt, emergency fund), diversification, costs and tracking difference, compound interest, savings plan, world portfolio with UCITS ETFs, taxes (Abgeltungsteuer, Sparer-Pauschbetrag, Teilfreistellung, Vorabpauschale, Anlage KAP), investment policy statement | Core module Anlegen (base portfolio, savings plan, projection) |
 | 2: How to read evidence | Backtest vs. reality, overfitting, confidence intervals, publication effect, why gurus don't work, life-cycle vs. all-equity view, factors and individual stocks (Bessembinder) | Evidence and backtest view; overlays and satellites in the core module |
 | 3: Swing trading | Trend following, momentum, mean reversion, position size, stops, expected value | Trading module (stocks, ETFs, ETCs) |
 | 4: Market intelligence | How news is priced in, insider signals, recognising hype | Tilts and scorecard |
@@ -293,7 +295,7 @@ A practice depot with virtual money on real prices. It uses the same data layer,
 
 **Functions:**
 - Order types: market, limit, stop, stop-limit, stop-loss and profit target at entry
-- Several practice depots in parallel (e.g. "Swing", "Langfrist-Sparplan" (long-term savings plan), "Gold"), each with its own starting capital
+- Several practice depots in parallel (e.g. "Swing", "Long-term savings plan", "Gold"), each with its own starting capital
 - Dividends, splits, costs and a rough tax estimate are taken into account as in the real tool
 - **Scenarios** for time travel: financial crisis 2008, COVID crash 2020, interest-rate turnaround 2022, sideways market, random starting point
 - **Evaluation** after every session: return against the benchmark (buy-and-hold) and against what the app's signals would have done; plus the trading journal with your typical mistakes
@@ -321,11 +323,11 @@ A practice depot with virtual money on real prices. It uses the same data layer,
 - Equal-weighted ensemble (ridge + LightGBM with several seeds) instead of a single "optimised" model
 - Expanding training, annual re-estimation, embargo, every variant counted for the overfitting tests
 - Hard gates: the engine must statistically beat a simple momentum ranking and, after costs, be better than the index **and** than an equal-weighted portfolio of all stocks, otherwise it does not go live
-- Ongoing monitoring with automatic status "Beobachtung" (under observation) in the event of a loss of performance
+- Ongoing monitoring with automatic status "Under observation" in the event of a loss of performance
 
 **Limitations:** Free price data contain hardly any delisted stocks (survivorship bias). The app therefore forms the historical universe from SEC reporting entities, applies a delisting return for stocks that have disappeared and declares periods with too many gaps invalid. For European stocks, free point-in-time fundamental data are lacking; there the engine works only with price and volume features.
 
-**Learning module:** Stage 2 ("Wie man Evidenz liest" (How to read evidence)) gets a lesson on the Prediction Engine: why 55 % is a lot, what calibration means and why a ranking is not a buy list.
+**Learning module:** Stage 2 ("How to read evidence") gets a lesson on the Prediction Engine: why 55 % is a lot, what calibration means and why a ranking is not a buy list.
 
 ### 4.14 UI design
 
@@ -335,28 +337,28 @@ A practice depot with virtual money on real prices. It uses the same data layer,
 
 | Main area | Subpages | Answers the question |
 |---|---|---|
-| Übersicht | – | What matters today? Leads with the **monthly recommendation** (core message in one sentence, actions), then portfolio status, trading signals, warnings, learning prompt |
-| **Anlegen** | Empfehlung (Recommendation) · Ziele & Portfolio (Goals & portfolio) · Projektion (Projection) · Anlagerichtlinie (Investment policy statement) | What should I do with my money, how do I stand in relation to my goals, what can I expect? |
-| Trading | Swing · Intraday · Aktien-Ranking (Stock ranking) | What do the trading strategies and the Prediction Engine say, and why? |
-| Portfolio | Positionen (Positions) · Risiko (Risk) · Journal | Where do I stand, how much risk am I carrying? Without a depot: entry point "Depot anlegen" (Set up depot) (manual, CSV, IBKR). In simulation mode this area shows the practice depot |
-| Markt (Market) | Briefing · Insider & Filings · Experten-Scorecard (Expert scorecard) | What is happening, and which of it is reliable? |
-| Optionen (Options) | Kette & Bewertung (Chain & valuation) · Strategien (Strategies) (locked until learning stage 6) | Is this contract fairly valued, what can I lose? |
-| Lernen (Learn) | Lernpfad (Learning path) · Simulator · Glossar (Glossary) · Quiz | What do I need to understand and practise before I use this? |
-| *Bottom, set apart* | Evidenz & Backtests (Evidence & backtests) · Datenqualität (Data quality) · Einstellungen (Settings) | Is the basis sound? (broker optional, capital, block list, security) |
+| Overview | – | What matters today? Leads with the **monthly recommendation** (core message in one sentence, actions), then portfolio status, trading signals, warnings, learning prompt |
+| **Anlegen** | Recommendation · Goals & portfolio · Projection · Investment policy statement | What should I do with my money, how do I stand in relation to my goals, what can I expect? |
+| Trading | Swing · Intraday · Stock ranking | What do the trading strategies and the Prediction Engine say, and why? |
+| Portfolio | Positions · Risk · Journal | Where do I stand, how much risk am I carrying? Without a depot: entry point "Set up depot" (manual, CSV, IBKR). In simulation mode this area shows the practice depot |
+| Market | Briefing · Insider & filings · Expert scorecard | What is happening, and which of it is reliable? |
+| Options | Chain & valuation · Strategies (locked until learning stage 6) | Is this contract fairly valued, what can I lose? |
+| Learn | Learning path · Simulator · Glossary · Quiz | What do I need to understand and practise before I use this? |
+| *Bottom, set apart* | Evidence & backtests · Data quality · Settings | Is the basis sound? (broker optional, capital, block list, security) |
 
 **Design principles:**
 - **One core message per page.** Every page answers exactly one question from the table; everything else is one level deeper.
 - **Progressive disclosure:** card with key figure → click opens details (chart, "Warum?", evidence, risk). No tables with 20 columns on the first level.
 - **At most 1–2 primary actions per page.** Filters and settings in collapsible sections.
-- **Signal card as the basic building block:** security, direction, hit rate with confidence interval, risk in euros, status (neu/aktiv/abgelaufen, i.e. new/active/expired), "Warum?" link. Structured the same way everywhere.
-- **Uncertainty visible, not hidden:** confidence intervals as bars, "kein Signal" (no signal) as an equal-ranking, calm state instead of an error message.
+- **Signal card as the basic building block:** security, direction, hit rate with confidence interval, risk in euros, status (new/active/expired), "Warum?" link. Structured the same way everywhere.
+- **Uncertainty visible, not hidden:** confidence intervals as bars, "no signal" as an equal-ranking, calm state instead of an error message.
 - **Colour with meaning:** restrained base surface, colour only for direction and warnings; never only red/green (colour vision deficiency), always with a symbol or text.
 - **Numbers easy to read:** tabular figures, German number format, units always included.
 - **Light and dark mode.**
 
 **Design process:**
 1. **Research** before the first dashboard: Mobbin (via the connected connector) for patterns from finance, portfolio and trading apps, in particular overview pages, watchlists, detail views and onboarding; in addition the frontend design skill for a distinctive aesthetic direction instead of a standard dashboard look.
-2. **Mockups** of the six core pages (Übersicht with monthly recommendation, Anlegen: Ziele & Portfolio, Projektion, signal detail, briefing, Lernpfad) as well as of the onboarding (profile, loss question, investment policy statement) as a design artefact to click through and comment on before any code is written.
+2. **Mockups** of the six core pages (Overview with monthly recommendation, Anlegen: Goals & portfolio, Projection, signal detail, briefing, Learning path) as well as of the onboarding (profile, loss question, investment policy statement) as a design artefact to click through and comment on before any code is written.
 3. **Implementation** only after you have approved the mockups.
 4. **Design review** before every release: check against the principles above, screenshots in both modes and at a narrow window width.
 
@@ -386,12 +388,12 @@ A practice depot with virtual money on real prices. It uses the same data layer,
 
 | Phase | Content | Gate |
 |---|---|---|
-| 0: Research | Tools, building blocks, evidence (done, 20260924); formalise strategies (done, 20260925: `20260925_strategie-katalog.md`) | ≥ 8 formalised strategies with evidence grade (met: 8 core/candidate strategies, 4 options strategies, 11 control rules, independently reviewed) |
+| 0: Research | Tools, building blocks, evidence (done, 20260924); formalise strategies (done, 20260925: `20260925_strategie-katalog_en.md`) | ≥ 8 formalised strategies with evidence grade (met: 8 core/candidate strategies, 4 options strategies, 11 control rules, independently reviewed) |
 | 0b: Calculation-core specification | All formulas with primary sources, conventions, edge cases and reference values for tests; a separate research step | Every formula has at least one published reference value and an independent second review |
 | 1: Foundation | Bitemporal data layer, `PointInTimeView`, instrument model, DuckDB, leakage tests, start of intraday recording | 20 years of daily data for gold, 10 UCITS ETFs, 20 stocks loaded cleanly; leakage tests green |
 | 2: Backtest engine | Costs, walk-forward, DSR, PBO; event-driven confirmation loop | Exact tests on synthetic series with an analytically known result; qualitative reproduction of the Faber trend filter over the freely available period (exact reproduction not possible because the original data is licensed, see calculation-core specification section 11); all calculation-core tests green |
 | 2b: UI concept | Mobbin research, aesthetic direction, mockups of the six core pages and of the onboarding | Mockups approved by you |
-| 3: **"Anlegen" (Invest) core module + learning stages 1–2** — first usable version | Investment specification A1–A13: onboarding (profile, loss question, goals), preconditions, equity share, building blocks, ETF selection with a curated candidate list, savings plan and rebalancing, tax engine, projection, monthly recommendation, investment policy statement (IPS), guardrails; base portfolio L1; overlays L2–L4 (off by default); first dashboard according to the approved UI concept, "Warum?" (Why?) panels, glossary | All tests TA1–TA22 green; tax engine and projection independently reviewed; monthly recommendation is generated from real data; overlays active only if they pass the gates and the after-tax gate; lessons 1–2 complete; design review passed |
+| 3: **"Anlegen" (Invest) core module + learning stages 1–2** — first usable version | Investment specification A1–A13: onboarding (profile, loss question, goals), preconditions, equity share, building blocks, ETF selection with a curated candidate list, savings plan and rebalancing, tax engine, projection, monthly recommendation, investment policy statement (IPS), guardrails; base portfolio L1; overlays L2–L4 (off by default); first dashboard according to the approved UI concept, "Why?" panels, glossary | All tests TA1–TA22 green; tax engine and projection independently reviewed; monthly recommendation is generated from real data; overlays active only if they pass the gates and the after-tax gate; lessons 1–2 complete; design review passed |
 | 3b: Simulator | Time travel (with blind mode and scenarios) and live practice depot, order types, evaluation; possible in parallel with phase 3 | All execution tests from specification section 12 green; simulator and backtest deliver identical results for identical orders; holdout lock effective |
 | 4: Market intelligence v1 | Ingest, classification, briefing, scorecard logging; possible in parallel with phase 3 | Pipeline runs stably for 4 weeks, all entries with timestamp and source |
 | 5: Trading module swing + learning stage 3, journal | Gold & co., then futures/CFDs with learning stage 5 | As phase 3, plus financing and roll costs |
@@ -411,7 +413,7 @@ All phases run on free data. Costs arise only when you later make real trades (f
 |---|---|
 | Overfitting | Walk-forward, DSR, PBO, paper trading gate |
 | Look-ahead bias | Bitemporal data, `PointInTimeView`, automatic leakage tests, sealed holdout, no LLM backtests before the training cutoff (quality standards section 3) |
-| No strategy or tilt survives | Valid result; app shows "kein Signal" (no signal), base portfolio L1 of the "Anlegen" core module remains the basis |
+| No strategy or tilt survives | Valid result; app shows "no signal", base portfolio L1 of the "Anlegen" core module remains the basis |
 | Leverage and options | Futures/CFDs only from phase 5 with learning stage 5, options only from phase 7 with learning stage 6; starter set, maximum-loss rules, stress tests |
 | Scope too large | Strict sequence; each module counts as "done" only when its gate is reached |
 | Manipulated content (prompt injection, pump articles) | LLM without action rights, source whitelist, hype as a warning rather than a signal |
@@ -421,7 +423,7 @@ All phases run on free data. Costs arise only when you later make real trades (f
 | Intraday with too little data | Own recording, signals only after ≥ 12 months of history |
 | Tax errors | IBKR does not withhold German tax; export trades, Anlage KAP; for options, a tax adviser if necessary |
 | False sense of security from learning progress | Unlocking means "understood", not "profitable"; the paper trading gate still applies |
-| False precision of the prediction engine | Calibration on a held-out time block, plausibility cap derived from the measured rank IC, status "Beobachtung" (under observation) on loss of performance, no percentage figure without a passed calibration |
+| False precision of the prediction engine | Calibration on a held-out time block, plausibility cap derived from the measured rank IC, status "Under observation" on loss of performance, no percentage figure without a passed calibration |
 | Survivorship bias in free price data | Universe from SEC filers, delisting return, invalidity rule, notice on every result; cannot be fully eliminated |
 | Overloaded interface | Information architecture with max. 2 levels, mockup approval before code, design review per phase |
 | Illusory learning in the simulator (hindsight bias, overly optimistic execution) | Blind mode, no rewinding, conservative execution rules, comparison with a benchmark |
@@ -433,7 +435,7 @@ None. All decisions are in section 2.
 
 ## Sources
 
-See `20260925_anlage-spezifikation.md` (sources for the core module), `20260924_trading-app-research.md` (complete source list) and `20260924_trading-app-qualitaetsstandards.md`. In addition:
+See `20260925_anlage-spezifikation_en.md` (sources for the core module), `20260924_trading-app-research.md` (complete source list) and `20260924_trading-app-qualitaetsstandards.md`. In addition:
 - Bailey, D. H., Borwein, J., López de Prado, M., & Zhu, Q. J. (2017). The probability of backtest overfitting. *Journal of Computational Finance, 20*(4), 39–69.
 - Bailey, D. H., & López de Prado, M. (2014). The deflated Sharpe ratio. *Journal of Portfolio Management, 40*(5), 94–107.
 - Faber, M. T. (2007). A quantitative approach to tactical asset allocation. *Journal of Wealth Management, 9*(4), 69–79.

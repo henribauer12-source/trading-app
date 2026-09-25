@@ -25,23 +25,27 @@ All in `docs/`. When they disagree, the higher one wins; raise the conflict inst
 2. `20260925_rechenkern-spezifikation-v1.4.md` — every trading/valuation formula, convention,
    cost/execution rule, the prediction engine (PE0–PE13), and the test catalogue (T1–T40) with
    reference values and tolerances.
-3. `20260925_anlage-spezifikation.md` (v1.3) — **the core module "Anlegen"**: profile, equity
+3. `20260925_anlage-spezifikation_en.md` (v1.4) — **the core module "Anlegen"**: profile, equity
    share per goal (A3), building blocks, ETF selection (A5), savings plan and rebalancing (A6),
    overlays (A7), German tax engine (A8, `Decimal` only), projection (A9), monthly
    recommendation, IPS, guardrails; tests TA1–TA22. Wins over 4–6 for anything in A1–A15.
-4. `20260925_strategie-katalog.md` (v1.2) — every strategy as an exact rule plus its YAML
+4. `20260925_strategie-katalog_en.md` (v1.2) — every strategy as an exact rule plus its YAML
    definition, evidence grade, gates (G1–G9), benchmarks, overlay variants OV-L2/OV-L4.
-5. `20260925_trading-app-plan-v9.md` — modules, architecture, UI information architecture,
+5. `20260925_trading-app-plan-v9_en.md` — modules, architecture, UI information architecture,
    roadmap with phase gates. The first usable version (phases 1–3) is the investment adviser.
 6. `20260924_trading-app-research.md` — background evidence (tools, building blocks, media/expert
    signals, options). Context, not rules.
 
 Superseded versions live in `docs/archive/` — never implement from them.
 
-The documents are in German; code, identifiers and comments are English; everything the user
-sees in the app is German. English reading copies (`*_en.md`) exist for the investment spec, plan v9
-and the catalogue. **The German original is binding.** Any spec change updates both files in the
-same edit; if they disagree, follow the German and flag the difference.
+Code, identifiers and comments are English, and so is the user-facing surface of the app. German
+tax and legal terms stay as proper nouns, because a German tax adviser has to review them:
+Vorabpauschale, Teilfreistellung, Günstigerprüfung, NV-Bescheinigung, Abgeltungsteuer,
+Sparer-Pauschbetrag, Verlusttöpfe, Aktienfonds, and every § reference. At most one English gloss
+in parentheses after the first mention, never an English term in their place. **The English texts
+(`*_en.md`) of the investment spec, plan v9 and the catalogue are binding.** Their German originals
+are archived in `docs/archive/` and are no longer binding. The quality standards, the
+calculation-core spec and the research document are still in German.
 
 Specs and tickets: `~/claude/.scratch/trading-app/spec.md` and `issues/NN-*.md` (one per
 phase, `Status:` line per `~/claude/docs/agents/triage-labels.md`).

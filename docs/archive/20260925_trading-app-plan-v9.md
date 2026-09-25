@@ -3,9 +3,13 @@ title: Trading-Analyse-App – Projektplan
 date: 20260925
 status: Entwurf v9 (ersetzt v8; Grundlagen: 20260925_anlage-spezifikation.md, 20260924_trading-app-qualitaetsstandards.md, 20260925_rechenkern-spezifikation-v1.4.md, 20260925_strategie-katalog.md (v1.2), 20260924_trading-app-research.md)
 owner: Henri
+superseded_by: ../20260925_trading-app-plan-v9_en.md
+binding: no (superseded German original, archived 20260925)
 ---
 
 # Trading-Analyse-App – Projektplan v9
+
+> **Superseded German original — not binding.** Since 20260925 the English text `../20260925_trading-app-plan-v9_en.md` is binding. This file is kept for reference only. Do not implement from it.
 
 ## Änderungen gegenüber v8
 

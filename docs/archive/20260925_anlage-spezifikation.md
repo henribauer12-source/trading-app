@@ -4,9 +4,13 @@ date: 20260925
 status: v1.3; bis v1.2 unabhängig geprüft, Befunde eingearbeitet; Ergänzungen v1.3 (A5.1, A5.2) noch nicht unabhängig geprüft
 owner: Henri
 basis: 20260925_trading-app-plan-v9.md, 20260925_rechenkern-spezifikation-v1.4.md, 20260925_strategie-katalog.md, 20260924_trading-app-qualitaetsstandards.md
+superseded_by: ../20260925_anlage-spezifikation_en.md
+binding: no (superseded German original, archived 20260925)
 ---
 
 # Anlage-Spezifikation v1.3 – Kernmodul "Anlegen"
+
+> **Superseded German original — not binding.** Since 20260925 the English text `../20260925_anlage-spezifikation_en.md` is binding. It stops at v1.3 and lacks the v1.4 decisions (starting indices, full calendar years, fund-size currency conversion, KID precedence). Kept for reference only. Do not implement from it.
 
 **Hinweis:** Dieses Dokument spezifiziert ein privates Analysewerkzeug. Es ist keine Anlage- oder Steuerberatung. Die Steuerregeln sind nach bestem Wissen aus Gesetzestext und BMF-Schreiben abgeleitet und vor produktiver Nutzung mit einer Steuerberatung abzugleichen.
 

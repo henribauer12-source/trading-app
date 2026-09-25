@@ -1,123 +1,194 @@
-# Instrument-Stammdaten für die ETF-Auswahl
+# Instrument master data for ETF selection
 
-**Datum:** 2026-09-25
-**Stand:** umgesetzt und geprüft, nicht committet
-**Spezifikation:** Anlage-Spezifikation v1.3, A5.1 und A5.2 (Ergänzungen v1.3 noch nicht unabhängig geprüft)
-**Code:** `src/trading_app/stammdaten.py`, `src/trading_app/harte_filter.py`, `src/trading_app/sources/dokumente.py`
-**Tests:** `tests/test_stammdaten.py`, `tests/test_harte_filter.py`, `tests/test_dokumente.py` — zusammen mit dem Bestand 266 grün
+**Date:** 2026-09-25
+**Status:** implemented and verified (commit `ac25960`); code identifiers translated to English in `81995d5` and `4b1c713`
+**Specification:** investment specification v1.4 (`20260925_anlage-spezifikation_en.md`), A5.1 and A5.2 (additions of v1.3 and v1.4 not yet independently reviewed)
+**Code:** `src/trading_app/instruments.py`, `src/trading_app/hard_filters.py`, `src/trading_app/sources/documents.py`
+**Tests:** `tests/test_instruments.py`, `tests/test_hard_filters.py`, `tests/test_documents.py` — 266 green together with the rest of the suite
 
 ---
 
-## Worum es geht
+## What this covers
 
-Die Datenschicht, auf der A5 später die Produktauswahl rechnet: TER, Tracking-Differenz,
-Fondsvolumen und die übrigen Merkmale von ETFs und ETCs, dazu die harten Filter A5.2. Nicht
-enthalten: die Bewertung A5.3, die Indexwahl A5.4, der Produktwechsel A5.6 und echte ISINs.
+The data layer that A5 will later use for product selection: TER, tracking difference, fund size
+and the other characteristics of ETFs and ETCs, plus the hard filters of A5.2. Not included:
+scoring A5.3, index choice A5.4, product switch A5.6, and real ISINs.
 
-## Entwurf: eine Zeile je Feldwert
+## Design: one row per field value
 
-A5.1 verlangt die Herkunft **je Feld**. Die TER stammt aus dem KID vom Februar, das Fondsvolumen aus
-dem Factsheet vom August. Gewählt ist deshalb eine schmale Tabelle `instrument_felder` mit einer
-Zeile je Wert:
-`isin, feld, periode, wert, einheit, quelle_url, quelle_typ, status, stand, abgerufen_am, ingested_at`.
+A5.1 requires provenance **per field**: the TER comes from the February KID, the fund size from
+the August factsheet. So the layer uses a narrow table `instrument_fields` with one row per value:
+`isin, field, period, value, unit, source_url, source_type, status, as_of, retrieved_at, ingested_at`.
 
-- Ein neues Feld ist ein Eintrag in `FELDER`, keine Schemamigration.
-- Jahreswerte (Tracking-Differenz) sind Zeilen mit `periode`, keine Spalten je Jahr.
-- `wert` steht als Text in der Tabelle und wird in Python zu `Decimal`, `bool`, `date` oder einem
-  Auswahlwert. Verworfen wurde eine DuckDB-`DECIMAL`-Spalte, weil sie still rundet (gemessen:
-  `0.12345678901` → `0.1235` in `DECIMAL(18,4)`) und `.df()` sie in `float64` umwandelt.
-- Verworfen wurde auch eine breite Tabelle mit einer Spalte je Feld: Für die Herkunft bräuchte sie
-  vier Begleitspalten je Feld, oder eine Zeile je Dokument mit wieder nur einem Stand-Datum.
+- A new field is an entry in `FIELDS`, not a schema migration.
+- Annual values (tracking difference) are rows with a `period`, not one column per year.
+- `value` is stored as text and converted in Python to `Decimal`, `bool`, `date` or a choice
+  value. A DuckDB `DECIMAL` column was rejected: it rounds silently (measured: `0.12345678901` →
+  `0.1235` in `DECIMAL(18,4)`), and `.df()` turns it into `float64`.
+- A wide table with one column per field was rejected too: for provenance it would need four
+  companion columns per field, or one row per document, which again allows only one as-of date.
 
-## Zeitachsen
+## Time axes
 
-| Spalte | Rolle wie in `bars` | Bedeutung |
+| Column | Role as in `bars` | Meaning |
 |---|---|---|
-| `stand` | `event_time` | Datum des Dokuments |
-| `abgerufen_am` | `available_at` | ab wann die App den Wert kannte, Point-in-time-Schlüssel |
-| `ingested_at` | `ingested_at` | wann die Zeile geschrieben wurde |
+| `as_of` | `event_time` | date of the document |
+| `retrieved_at` | `available_at` | from when the app knew the value; the point-in-time key |
+| `ingested_at` | `ingested_at` | when the row was written |
 
-Unter mehreren bekannten Werten gilt der jüngste `stand`, bei gleichem Stand der spätere Abruf. Ein
-Abruf vor dem Stand wird abgewiesen (in Python und als CHECK in der Tabelle, verglichen in UTC).
+When several values are known, the latest `as_of` applies; for equal `as_of`, the later retrieval.
+A retrieval before the as-of date is rejected, both in Python and as a CHECK in the table
+(compared in UTC). The KID precedence of spec v1.4 is not implemented yet (decision 4 below).
 
-## Unverifizierte Werte
+`as_of` also names the cut-off date of a query. See the known defect at the end.
 
-Jede Prüfung in `pruefe_harte_filter` endet mit *erfüllt*, *verletzt* oder *offen*. Ein fehlender
-oder UNVERIFIZIERT-Wert ergibt *offen*; das Produkt ist dann nicht zulässig. Das ist weder eine
-Ausnahme (die würde bei einem einzigen ungeprüften Wert die Auswertung aller Kandidaten abbrechen)
-noch eine bloße Warnung (die ließe das Produkt durch).
+## Unverified values
 
-## Rechtliche Grenzen im Code
+Every check in `check_hard_filters` ends as *fulfilled*, *violated* or *open*
+(`Verdict.FULFILLED`, `Verdict.VIOLATED`, `Verdict.OPEN`). A missing or `UNVERIFIED` value
+(`VerificationStatus`) gives *open*, and the product is then not eligible (`FilterResult.eligible`
+is false). This is not an exception, because one unchecked value would then abort the evaluation of
+every candidate. It is not a mere warning either, because a warning would let the product through.
 
-Es gibt keinen Scraper. Die Werte kommen aus einer von Hand gepflegten JSON-Datei
-(`lade_quelldatei`; das Format steht im Modul-Docstring). `sources/dokumente.lade_dokument` lädt
-genau ein PDF und nimmt dabei nur https-Adressen, deren Pfad auf `.pdf` endet und die keine Query
-haben. Adressen mit einem Host-Label, das mit `justetf` oder `vanguard` beginnt, werden vor jeder
-Verbindung abgewiesen, auch als Weiterleitungsziel.
+## Legal limits in the code
 
-Die Quelldatei gehört ins Repo, weil sie versioniert werden soll, aber **nicht nach `data/`**: Dieser
-Pfad steht in `.gitignore`.
+There is no scraper. Values come from a hand-maintained JSON file (`load_source_file`; the format
+is in the module docstring). `sources/documents.download_document` downloads exactly one PDF. It
+accepts only https addresses whose path ends in `.pdf` and that have no query. An address whose
+host has a label starting with `justetf` or `vanguard` is rejected before any connection is made,
+also when it is a redirect target.
 
-## Mutationsprüfung
+The source file belongs in the repo, because it should be versioned, but **not in `data/`**: that
+path is in `.gitignore`.
 
-Jede Sabotage lief in einer frischen Kopie von `src/` und `tests/` mit `PYTHONDONTWRITEBYTECODE=1`
-(siehe `wiki/python-pyc-invalidation.md`). Der Arbeitsbaum blieb dabei unberührt. Eine Kontrolle
-ohne Mutation ergab 0 rote Tests.
+## Mutation testing
 
-| # | Sabotage | rot |
+Each sabotage ran in a fresh copy of `src/` and `tests/` with `PYTHONDONTWRITEBYTECODE=1` (see
+`wiki/python-pyc-invalidation.md`), so the working tree stayed untouched. A control run without a
+mutation gave 0 red tests. The table was measured on the German code base, before the translation.
+
+| # | Sabotage | red |
 |---|---|---|
-| M1a | PIT-Filter entfernt (`feld`/`reihe`) | 9 |
-| M1b | PIT-Filter entfernt (`isins`) | 3 |
-| M2a | Stichtag `<=` → `<` (`feld`/`reihe`) | 2 |
-| M2b | Stichtag `<=` → `<` (`isins`) | **0**, nach neuem Test 1 |
-| M3 | Volumen-Filter 100 Mio. → 10 Mio. | 4 |
-| M4 | Historie-Filter 3 → 1 Jahr | 2 |
-| M5a | Domain-Sperrliste leer | 13 |
-| M5b | Weiterleitungsprüfung ausgebaut | 1 |
-| M6a | `Decimal` → `float` beim Speichern | 2 |
-| M6b | `float` als Eingabe zugelassen | 1 |
-| M6c | Quelldatei liest `float` statt `Decimal` | 4 |
-| M7 | UNVERIFIZIERT besteht still | 4 |
-| M8 | Vorrang ignoriert das Stand-Datum | 1 |
-| M9 | K1-/Geldmarkt-Schwelle 500 → 100 Mio. | 3 |
-| M10 | Abruf vor Stand zugelassen | 1 |
-| M11 | ISIN-Prüfziffer ignoriert | 1 |
-| M12 | Wert aus zweiter Hand darf VERIFIZIERT sein | 1 |
-| M13 | „nicht an Xetra“ → verletzt statt offen | 1 |
-| M14 | Jahreswert vor Jahresende zugelassen | 1 |
-| M15 | Duplikatprüfung beim Anhängen entfernt | 1 |
-| M16 | Auflage am 1. Januar zählt nicht | 2 |
-| M17 | Gold prüft UCITS statt Lieferanspruch | 1 |
-| M18 | Tabellen-CHECK Abruf ≥ Stand entfernt | **0**, nach neuem Test 2 |
-| M19 | Tabellen-CHECK ohne UTC-Umrechnung | 2 |
+| M1a | PIT filter removed (`field()`/`series()`) | 9 |
+| M1b | PIT filter removed (`isins()`) | 3 |
+| M2a | Cut-off `<=` → `<` (`field()`/`series()`) | 2 |
+| M2b | Cut-off `<=` → `<` (`isins()`) | **0**, 1 after a new test |
+| M3 | Fund-size filter 100m → 10m | 4 |
+| M4 | History filter 3 → 1 year | 2 |
+| M5a | Domain blocklist empty | 13 |
+| M5b | Redirect check removed | 1 |
+| M6a | `Decimal` → `float` on storing | 2 |
+| M6b | `float` accepted as input | 1 |
+| M6c | Source file read as `float` instead of `Decimal` | 4 |
+| M7 | `UNVERIFIED` passes silently | 4 |
+| M8 | Precedence ignores the as-of date | 1 |
+| M9 | K1/money-market threshold 500m → 100m | 3 |
+| M10 | Retrieval before the as-of date allowed | 1 |
+| M11 | ISIN check digit ignored | 1 |
+| M12 | Second-hand value may be `VERIFIED` | 1 |
+| M13 | "Not on Xetra" → violated instead of open | 1 |
+| M14 | Annual value before year end allowed | 1 |
+| M15 | Duplicate check on append removed | 1 |
+| M16 | Inception on 1 January not counted | 2 |
+| M17 | Gold checks UCITS instead of the delivery claim | 1 |
+| M18 | Table CHECK retrieval ≥ as-of date removed | **0**, 2 after a new test |
+| M19 | Table CHECK without UTC conversion | 2 |
 
-Ergebnis: 24 Sabotagen, am Ende alle erkannt. Zwei blieben zunächst unbemerkt:
+Result: 24 sabotages, all caught in the end. Two went unnoticed at first:
 
-- M2b fand der erste Lauf.
-- M18 fand die unabhängige Prüfung.
+- the first run found M2b;
+- the independent review found M18.
 
-Für beide kam ein Test hinzu, danach wurden sie erkannt. M19 fällt nur auf einem Rechner östlich
-von UTC auf (hier Europe/Berlin); auf einem UTC-Rechner ist diese Mutation gleichwertig mit dem
-Original.
+A test was added for each, and both are now caught. M19 shows only on a machine east of UTC (here
+Europe/Berlin); on a UTC machine this mutation behaves exactly like the original.
 
-## Offen in der Spezifikation
+## Decisions of 20260925 (spec v1.4)
 
-Die Stellen, die v1.3 geregelt hat, stehen in A5.1 und A5.2. Offen sind noch:
+These four items were open here until 20260925. They are now decided and written into the spec.
 
-1. **Filter 2 für Anleihen, Gold und Faktor:** A5.5 nennt dort nur Indexfamilien. Diese Prüfung
-   bleibt *offen*, bis A5.5 konkrete Indexnamen nennt, und damit ist bis dahin kein Produkt dieser
-   Bausteine zulässig.
-2. **Schreibweise des Index:** Für A5.3 („derselbe Index“) muss die Variante (Net/Gross,
-   Währung) eindeutig sein. v1.3 legt nur für K1 und den Geldmarkt die Schreibweise von A5.5 fest.
-3. **Fondsvolumen in Fremdwährung:** Viele Factsheets nennen USD. Ungeklärt sind Kurs und Stichtag
-   der Umrechnung, und ob das Volumen des Fonds oder das der Anteilsklasse zählt. Das Feld nimmt
-   nur EUR an.
-4. **Schließungsankündigung:** A5.6 nennt sie als Verletzung eines harten Filters, A5.2 enthält
-   dafür aber keinen Filter.
-5. **Replikation „synthetisch, mehrere Gegenparteien“:** A5.3 vergibt 75 Punkte nur bei
-   *transparenten Sicherheiten*. Wie ein Fonds mit mehreren Gegenparteien ohne transparente
-   Sicherheiten zu werten ist, bleibt offen.
-6. **„Jahre seit Auflage“ (A5.3, Historie) gegen „volle Kalenderjahre“ (A5.2 Nr. 4):** zwei
-   verschiedene Altersmaße.
-7. **„Niedrige Frequenz“ (A5.1):** Es gibt keine Zahl; der Download setzt kein Tempolimit durch.
-8. **Filter 7 (sparplanfähig, P15):** nutzerbezogen, nicht in dieser Schicht.
+1. **Filter 2 for bonds, gold and factor: starting indices** (A5.5). K2 EUR government bonds: FTSE
+   EMU Government Bond Index (EGBI), all maturities or one of its bands 1–3 / 3–5 / 5–7 / 7–10 / 10+
+   years; the bands are why it was chosen. K2 global bonds: Bloomberg Global Aggregate, EUR-hedged.
+   S-Gold: LBMA Gold Price PM, set by ICE Benchmark Administration at 15:00 London; the USD price
+   is the auction price, LBMA's euro prices are indicative only. S-Factor: MSCI World Quality
+   (return on equity, stable year-over-year earnings growth, low financial leverage).
+   **Code not yet updated:** `hard_filters._INDICES_A5_5` still lists only K1 and K2 money market,
+   so filter 2 stays *open* for the other four building blocks, and its reason still says that
+   A5.5 names only an index family.
+2. **Age measure: full calendar years everywhere** (A5.3). The history score now counts like
+   A5.2 no. 4, not "years since inception". Reason: tracking difference is published per calendar
+   year, so the history score must count the years for which a usable TD value exists.
+   `full_calendar_years` already implements the count; scoring A5.3 is not built yet, so no code
+   contradicts the decision.
+3. **Fund size in a foreign currency: converted, with USD as the primary reporting currency**
+   (A5.1, A5.2 on 3). The value is stored as published. It is converted into EUR at the rate of
+   the value's own `as_of` date, never at today's rate, because otherwise a stored fund size would
+   silently change on every re-run. Rate source: the ECB euro foreign exchange reference rates
+   (free, daily). The rate is stored as a value with its own provenance, like every other value.
+   **Specified, not yet implemented; this is a behaviour change.** `FIELDS["fund_size"]` still has
+   unit `EUR` and `FieldValue` rejects any other unit. The ECB rate has no ISIN, so it does not fit
+   `instrument_fields` as it stands; where it is stored is a design question for the
+   implementation. The known defect below must be fixed first.
+4. **TER conflict: the KID wins over the factsheet** (A5.1). Reason: the KID is mandated by the
+   PRIIPs Regulation, with a prescribed calculation method and issuer liability; the factsheet is
+   marketing material. When the two disagree, both values are stored, the KID value as `VERIFIED`
+   and the factsheet value as a second entry, so the disagreement stays visible instead of being
+   silently resolved. The same precedence applies to every other field that appears in both
+   documents. **Not yet implemented:** `InstrumentView._current` ranks by
+   `as_of DESC, retrieved_at DESC, row_id DESC` whatever the `source_type`, so today a later
+   factsheet beats an earlier KID.
+
+## Still open in the specification
+
+1. **Spelling of the index:** for A5.3 ("same index") the variant (net/gross, currency, hedging)
+   must be unambiguous. v1.3 fixed the A5.5 spelling only for K1 and the money market. The v1.4
+   starting indices need it too, including the names of the EGBI maturity bands.
+2. **Fund size, remaining questions:** does the fund's volume count, or the share class's? Which
+   rate applies when the as-of date has no ECB rate (weekend, TARGET holiday)? The strategy
+   catalogue G4 carries the last rate forward; doing the same here would be consistent.
+3. **KID precedence against other documents:** the decision names the factsheet. Spec v1.4 gives
+   the KID precedence over every other document, so that the ranking stays a total order. KID
+   (February), annual report (June) and factsheet (August) would otherwise form a cycle.
+4. **Closure announcement:** A5.6 treats it as a violation of a hard filter, but A5.2 has no filter
+   for it.
+5. **Replication "synthetic, multiple counterparties":** A5.3 gives 75 points only with
+   *transparent collateral*. How to score a fund with several counterparties and no transparent
+   collateral is open.
+6. **"Low frequency" (A5.1):** there is no number, and the download enforces no rate limit.
+7. **Filter 7 (savings-plan-eligible, P15):** user-specific, not part of this layer.
+8. **TA16 against A5.2 no. 4:** TA16 still expects the hard filters to exclude funds that are "too
+   young", but A5.2 no. 4 (v1.3) and the code label them `new` instead of excluding them.
+
+## Known defect: `as_of` names two different dates
+
+**Not fixed. Recorded 20260925; no code was changed.**
+
+The translation mapped two distinct German concepts to the one English name `as_of`:
+
+- ***Stand***, the date the document itself carries: `FieldValue.as_of`, the column
+  `instrument_fields.as_of`, the source-file key `"as_of"`, and the "as of …" in each check's
+  reason. Before the translation this was `stand`.
+- ***Stichtag***, the cut-off date a query asks about: `FilterResult.as_of` (was `stichtag`).
+  `InstrumentView.as_of` and `InstrumentStore.view(as_of=…)` already used `as_of` for the cut-off
+  before the translation (German docstring: "Der Stichtag dieser Sicht"), and so do
+  `PointInTimeView.as_of` and `BitemporalStore.view(as_of=…)` in `bitemporal.py`.
+
+In a point-in-time store these are different axes. The document date orders the known values
+(precedence); the cut-off date filters on `retrieved_at`. At the moment only a comment keeps them
+apart (`instruments.py` module docstring: "Careful: the column `as_of` is the document date.
+`InstrumentView.as_of` is the view's cut-off date").
+
+Why it matters now: the currency conversion (decision 3) must use the rate of the value's
+document date. With one name for both dates, a rate looked up at `value.as_of` and a rate looked up
+at `view.as_of` look equally plausible. The second would re-price every stored fund size with each
+new cut-off, which is exactly what the rule forbids.
+
+**Proposed fix:** keep `as_of` for the document's own date; rename the query cut-off to `cut_off`.
+
+- `InstrumentView.as_of` → `InstrumentView.cut_off`; `InstrumentStore.view(as_of=…)` →
+  `view(cut_off=…)`; `FilterResult.as_of` → `FilterResult.cut_off`.
+- For one vocabulary across the data layer, also `PointInTimeView.as_of` →
+  `PointInTimeView.cut_off`, `BitemporalStore.view(as_of=…)` → `view(cut_off=…)`, and the
+  parameter `full_calendar_years(…, cutoff)` → `cut_off`.
+- A pure rename with no behaviour change. The cut-off mutants (M2a, M2b) must still go red
+  afterwards. Do it before the currency conversion is implemented.

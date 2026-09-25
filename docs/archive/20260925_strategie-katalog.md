@@ -4,9 +4,13 @@ date: 20260925
 status: v1.2 (v1.1 unabhängig geprüft; v1.2 ergänzt Overlay-Varianten für das Kernmodul Anlegen)
 owner: Henri
 basis: 20260925_trading-app-plan-v9.md, 20260925_anlage-spezifikation.md, 20260925_rechenkern-spezifikation-v1.4.md
+superseded_by: ../20260925_strategie-katalog_en.md
+binding: no (superseded German original, archived 20260925)
 ---
 
 # Strategie-Katalog v1.2 (Phase 0)
+
+> **Superseded German original — not binding.** Since 20260925 the English text `../20260925_strategie-katalog_en.md` is binding. This file is kept for reference only. Do not implement from it.
 
 ## 0. Kurzfassung
 

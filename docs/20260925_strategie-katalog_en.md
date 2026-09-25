@@ -3,13 +3,15 @@ title: Trading analysis app – strategy catalogue (Phase 0)
 date: 20260925
 status: v1.2 (v1.1 independently reviewed; v1.2 adds overlay variants for the "Anlegen" (Invest) core module)
 owner: Henri
-basis: 20260925_trading-app-plan-v9.md, 20260925_anlage-spezifikation.md, 20260925_rechenkern-spezifikation-v1.4.md
+basis: 20260925_trading-app-plan-v9_en.md, 20260925_anlage-spezifikation_en.md, 20260925_rechenkern-spezifikation-v1.4.md
 language: en
-translation_of: 20260925_strategie-katalog.md
-binding: German original
+binding: this English text (since 20260925)
+supersedes: archive/20260925_strategie-katalog.md (German original of v1.2, no longer binding)
 ---
 
 # Strategy catalogue v1.2 (Phase 0)
+
+**Binding text.** This English document is the binding strategy catalogue. The German original is archived in `archive/20260925_strategie-katalog.md` and no longer binding. German tax and legal terms (e.g. Abgeltungsteuer) are kept as proper nouns. The YAML keys and most YAML values are still German identifiers; they change only together with the code that will read them.
 
 ## 0. Summary
 
@@ -53,7 +55,7 @@ The catalogue formalises **8 core and candidate strategies**, **4 options strate
 |---|---|
 | Core | Is built and tested first; shows signals after passing the gates |
 | Candidate | Is tested; shows signals only if all gates are passed |
-| Control | Is tested with the same engine to show that the testing rejects nonsense; results appear in the "Evidenz" (Evidence) area and in the learning module, **never** as a signal. If a control rule unexpectedly passes all gates, this is investigated as a possible error of the engine |
+| Control | Is tested with the same engine to show that the testing rejects nonsense; results appear in the "Evidence" area and in the learning module, **never** as a signal. If a control rule unexpectedly passes all gates, this is investigated as a possible error of the engine |
 | Not implementable | Documented, but not built |
 
 ---
@@ -80,7 +82,7 @@ The catalogue formalises **8 core and candidate strategies**, **4 options strate
 **G6 Publication effect and sample.**
 - Each strategy has in its YAML the **end of the sample of its source** (`stichprobenende`), not just the publication year
 - **The gates (G7) are tested exclusively on data after the end of the sample.** In this period the source did not choose its parameters. The full period is shown for information only
-- If the period after the end of the sample is not sufficient for MinTRL (S4), the strategy is deemed "nicht ausreichend belegt" (insufficiently supported) and shows no signals
+- If the period after the end of the sample is not sufficient for MinTRL (S4), the strategy is deemed "insufficiently supported" and shows no signals
 - **Expected live effect** in the display: the active return relative to the benchmark (G8) after the end of the sample; if less than MinTRL is available for this, the active return of the full period with a **60 % haircut** (McLean & Pontiff, 2016: 58 % decline after publication). The haircut applies only to the active return, not to the market return
 - ENTSCHEIDUNG
 
@@ -88,9 +90,9 @@ The catalogue formalises **8 core and candidate strategies**, **4 options strate
 1. All leakage tests green (quality standards, section 3.3)
 2. **Active return** (strategy minus gate benchmark according to G8, both after costs) with DSR ≥ 0.95 across all counted trials according to G9; PSR, DSR and MinTRL are calculated on the active return (SR* = 0 for the active return)
 3. t-statistic of the mean active return (Newey-West) ≥ 3.0 (Harvey, Liu & Zhu, 2016, recommend this threshold because of the large number of factors tested; not inspected)
-4. With doubled costs the active return remains positive, otherwise flagged "kostensensitiv" (cost-sensitive); in the intraday module then no signals
+4. With doubled costs the active return remains positive, otherwise flagged "cost-sensitive"; in the intraday module then no signals
 5. Available period after the end of the sample ≥ MinTRL
-6. No "Zu gut" (too good) alert (S10) open
+6. No "too good" alert (S10) open
 7. **PBO ≤ 0.05 only if the app uses a variant instead of the source rule.** The source rule itself is not tested via PBO because it was not selected from the variants; the variants then serve only as a robustness report
 8. **Risk gate for L2 and L4** (strategies whose benefit according to the source lies in risk), replaces gates 2 and 3:
    - Benchmark: static mix with the **average invested share of the strategy per asset class** over the test period, rebalanced monthly, remainder in cash. This way merely taking less risk cannot pass the gate
@@ -195,7 +197,7 @@ abweichungen: ["Rebalancing rule is a self-defined specification, not a source r
 
 **Deviations from the source:** UCITS products in EUR instead of US indices in USD, EUR instead of US government bonds, signal on the EUR price series (exchange rates feed in), execution at the next open instead of at the closing price, costs taken into account, cash with EUR interest rate instead of T-bills.
 
-**Known weaknesses:** false signals in V-shaped markets; lags behind in strong bull markets (2006–2012 better in only 3 of 7 years); in Germany every exit realises flat withholding tax (Abgeltungsteuer) (not in the backtest, only in the display according to C8).
+**Known weaknesses:** false signals in V-shaped markets; lags behind in strong bull markets (2006–2012 better in only 3 of 7 years); in Germany every exit realises Abgeltungsteuer (flat withholding tax) (not in the backtest, only in the display according to C8).
 
 ```yaml
 id: L2
@@ -307,11 +309,11 @@ abweichungen: [welt_eur_statt_usa, cash_eur, c_echtzeit, deckel_1]
 
 ### Overlay variants for the "Anlegen" (Invest) core module (v1.2)
 
-Since plan v9, the long-term module has been part of the "Anlegen" (Invest) core module (`20260925_anlage-spezifikation.md`). L1 is the base portfolio there. In addition, there are two **own, registered variants** that only temporarily reduce the weight of the world equity building block K1. **Name clash:** K1 here means building block K1 from anlage spec A4.1, not control rule K1 from section 8; in code, building blocks are `block_K1`, `block_K2`, control rules `control_K1` to `control_K11`. They count as separate trials under G9 and are not equated with L2 or L4 respectively, because universe and weighting are different.
+Since plan v9, the long-term module has been part of the "Anlegen" (Invest) core module (`20260925_anlage-spezifikation_en.md`). L1 is the base portfolio there. In addition, there are two **own, registered variants** that only temporarily reduce the weight of the world equity building block K1. **Name clash:** K1 here means building block K1 from anlage spec A4.1, not control rule K1 from section 8; in code, building blocks are `block_K1`, `block_K2`, control rules `control_K1` to `control_K11`. They count as separate trials under G9 and are not equated with L2 or L4 respectively, because universe and weighting are different.
 
 | ID | Rule | Gate |
 |---|---|---|
-| OV-L2 | Month-end: total-return price of K1 above the average of the last 10 month-end prices → w(K1) as planned; otherwise w(K1) × 0.5, remainder into the €STR money market ETF; execution at the next open | Risk gate G7 point 8 (Calmar ratio against a static mix with the same average invested share), **before and after German tax** with the same metric (investment specification (Anlage-Spezifikation) A8.11) |
+| OV-L2 | Month-end: total-return price of K1 above the average of the last 10 month-end prices → w(K1) as planned; otherwise w(K1) × 0.5, remainder into the €STR money market ETF; execution at the next open | Risk gate G7 point 8 (Calmar ratio against a static mix with the same average invested share), **before and after German tax** with the same metric (investment specification A8.11) |
 | OV-L4 | w(K1) = planned weight × max(0.5; min(1; c_t / σ̂²_t)), c_t and σ̂²_t as in L4 | as OV-L2 |
 
 - End of sample as for L2 or L4 respectively; variants of the source (Faber: SMA 3/6/9/12) only as a robustness report (G7 point 7)
@@ -458,7 +460,7 @@ abweichungen: [long_only, top500_statt_alle_aktien, survivorship_pe2]
 ## 6. Intraday module
 
 **Up front in the learning module:**
-- Of 1,551 Brazilians who day-traded index futures on more than 300 days, 97 % lost money after fees; 1.1 % earned more than the minimum wage (Chague et al., 2020; checked once). In Taiwan, fewer than 1 % of day traders were able to earn profits reliably after fees (Barber et al., 2014)
+- Of 1,551 Brazilians who day-traded index futures on more than 300 days, 97 % lost money after fees; 1.1 % earned more than the minimum wage (Chague et al., 2020; single-checked). In Taiwan, fewer than 1 % of day traders were able to earn profits reliably after fees (Barber et al., 2014)
 - Anyone who is flat in the evening forgoes the overnight portion of the equity premium: US market 1993–2013 on average 0.55 % per month overnight and 0.38 % during the day; for the largest stocks practically the entire premium accrued overnight (Lou, Polk & Skouras, 2019)
 
 ### I1 Intraday momentum in the last half hour (candidate)
@@ -474,11 +476,11 @@ abweichungen: [long_only, top500_statt_alle_aktien, survivorship_pe2]
 - Test market 2: S&P 500 UCITS ETF on a trading venue with evening trading. Signal and exit times follow **NYSE time** (signal 15:30 ET, exit at the price at 16:00 ET), not the close of trading on the German venue; in the weeks with differing daylight saving time this shifts in CET. Liquidity and spreads at this time UNVERIFIZIERT; check before the test
 - Costs: spread and commission on entry, commission and slippage on exit
 
-**Realistic expectation:** With a Sharpe ratio of 1.08 as in Gao et al., MinTRL (95 %) requires about 2.3 years of data; at 0.5 about 11 years. **I1 can pass the gates at the earliest after about 3 years of own recording**, probably later or never. Until then I1 runs only as an observation in the "Evidenz" (Evidence) area.
+**Realistic expectation:** With a Sharpe ratio of 1.08 as in Gao et al., MinTRL (95 %) requires about 2.3 years of data; at 0.5 about 11 years. **I1 can pass the gates at the earliest after about 3 years of own recording**, probably later or never. Until then I1 runs only as an observation in the "Evidence" area.
 
 ```yaml
 id: I1
-name: "Intraday-Momentum letzte halbe Stunde"  # Intraday momentum, last half hour
+name: "Intraday momentum last half hour"
 modul: intraday
 rolle: kandidat
 evidenz: C
@@ -527,7 +529,7 @@ The precise formalisation (strike selection, roll rules, YAML) takes place befor
 
 Tested on the instruments and periods of the respective source (G3), with the same costs and gates; own N (G9). Expectation from the literature: no rule passes.
 
-**Finding:** The rules of Brock, Lakonishok & LeBaron (1992) were highly significant before costs in the Dow Jones 1897–1986. Sullivan, Timmermann & White (1999) examined 7,846 rules with a correction for data snooping: out-of-sample 1987–1996 the best Brock rule was no longer significant (White p = 0.154), nor was the best rule of the entire universe (p = 0.341) (checked once). Bajgrowicz & Scaillet (2012): even in-sample, the performance is entirely eaten up by low transaction costs.
+**Finding:** The rules of Brock, Lakonishok & LeBaron (1992) were highly significant before costs in the Dow Jones 1897–1986. Sullivan, Timmermann & White (1999) examined 7,846 rules with a correction for data snooping: out-of-sample 1987–1996 the best Brock rule was no longer significant (White p = 0.154), nor was the best rule of the entire universe (p = 0.341) (single-checked). Bajgrowicz & Scaillet (2012): even in-sample, the performance is entirely eaten up by low transaction costs.
 
 | ID | Rule | Exact parameters | Source and finding | Evidence |
 |---|---|---|---|---|
@@ -593,6 +595,8 @@ Exact reproduction is not possible with free data (different instruments, period
 ---
 
 ## Changelog
+
+**20260925, no rule change:** this English text becomes binding and the German original moves to `archive/`. Editorial: Abgeltungsteuer kept as a German term; labels shown in the app in English; the marker "single-checked" used in all five places; the I1 YAML name translated like the other names.
 
 **v1.2 (20260925):** Overlay variants OV-L2 and OV-L4 added for the "Anlegen" (Invest) core module; after-tax gate for overlays and the satellite S-Taktik. Found and corrected during translation: K10 short **below** the lower band; Zakamulin finding stated the right way round; K4 reference at L2 pointed to the calculation-core specification; name clash building block K1 / control rule K1 resolved.
 

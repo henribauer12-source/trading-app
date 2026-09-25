@@ -1,15 +1,17 @@
 ---
 title: Trading Analysis App – Investment Specification (Core Module Investment Adviser)
 date: 20260925
-status: v1.3; independently reviewed up to v1.2, findings incorporated; additions in v1.3 (A5.1, A5.2) not yet independently reviewed
+status: v1.4; independently reviewed up to v1.2, findings incorporated; additions in v1.3 (A5.1, A5.2) and v1.4 (A5.1, A5.2, A5.3, A5.5) not yet independently reviewed
 owner: Henri
-basis: 20260925_trading-app-plan-v9.md, 20260925_rechenkern-spezifikation-v1.4.md, 20260925_strategie-katalog.md, 20260924_trading-app-qualitaetsstandards.md
+basis: 20260925_trading-app-plan-v9_en.md, 20260925_rechenkern-spezifikation-v1.4.md, 20260925_strategie-katalog_en.md, 20260924_trading-app-qualitaetsstandards.md
 language: en
-translation_of: 20260925_anlage-spezifikation.md
-binding: German original
+binding: this English text (since v1.4)
+supersedes: archive/20260925_anlage-spezifikation.md (German original of v1.3, no longer binding)
 ---
 
-# Investment Specification v1.3 – "Anlegen" (Invest) Core Module
+# Investment Specification v1.4 – "Anlegen" (Invest) Core Module
+
+**Binding text.** This English document is the binding investment specification. The German original (v1.3) is archived in `archive/20260925_anlage-spezifikation.md` and no longer binding. German tax and legal terms (Vorabpauschale, Teilfreistellung, Günstigerprüfung, NV-Bescheinigung, Abgeltungsteuer, Sparer-Pauschbetrag, Verlusttöpfe, Aktienfonds, all § references) are kept as proper nouns, because a German tax adviser has to review them.
 
 **Note:** This document specifies a private analysis tool. It is not investment or tax advice. The tax rules have been derived to the best of our knowledge from the statutory text and BMF-Schreiben (BMF circulars) and must be checked with a tax adviser before productive use.
 
@@ -62,7 +64,7 @@ Every output is stored with timestamp, input data, parameters and code version (
 | P5 | Debts with interest rate (overdraft (Dispo), credit card, loans, BAföG loan) | List | Precondition (A2) |
 | P6 | Dependants who depend on you financially | Yes/No | Capacity |
 | P7 | Does your income depend on the stock market or on a particular industry? | Selection | Capacity, country diversification |
-| P8 | Goals: name, amount (optional), target date or "langfristig/Altersvorsorge" (long-term/retirement provision) | List | Horizon per goal (A3.1) |
+| P8 | Goals: name, amount (optional), target date or "long-term/retirement provision" | List | Horizon per goal (A3.1) |
 | P9 | Monthly savings amount and planned increase per year | Number, % | Savings plan (A6), projection (A9) |
 | P10 | Lump sums (available or expected) | List | Implementation (A6.4) |
 | P11 | Loss question in euros (A1.2) | Number | Tolerance (A3.3) |
@@ -75,7 +77,7 @@ Every output is stored with timestamp, input data, parameters and code version (
 
 ### A1.2 Loss question in euros
 
-The app shows a bar with the expected depot value in 5 years (B5, according to the A9 base scenario) and below it the same value after a decline of 50 %. Question: **"Bis zu welchem Verlust in Euro würdest du durchhalten, ohne zu verkaufen?"** (Up to what loss in euros would you hold on without selling?) Input L€.
+The app shows a bar with the expected depot value in 5 years (B5, according to the A9 base scenario) and below it the same value after a decline of 50 %. Question: **"Up to what loss in euros would you hold on without selling?"** Input L€.
 Rationale: ESMA guidelines para. 44, 46, 48 require practical loss scenarios with "concrete figures" instead of self-assessment. VERIFIZIERT.
 
 ### A1.3 Risk tolerance scale
@@ -86,7 +88,7 @@ Rationale: ESMA guidelines para. 44, 46, 48 require practical loss scenarios wit
 
 ### A1.4 Comprehension and consistency check
 
-- Two comprehension questions (e.g. "Was passiert mit einem Welt-ETF, wenn die Aktienmärkte 40 % fallen?" (What happens to a global ETF if stock markets fall 40 %?); "Was bedeutet eine Aktienquote von 80 %?" (What does an equity share of 80 % mean?)), according to ESMA para. 52
+- Two comprehension questions (e.g. "What happens to a global ETF if stock markets fall 40 %?"; "What does an equity share of 80 % mean?"), according to ESMA para. 52
 - Contradiction check according to ESMA para. 51: e.g. high willingness to accept losses with a horizon < 3 years, or high scale scores with incorrectly answered comprehension questions → notice and follow-up question, the lower result applies until clarified. VERIFIZIERT (structure), rules ENTSCHEIDUNG
 
 ### A1.5 Repetition
@@ -114,7 +116,7 @@ Rationale: ESMA guidelines para. 44, 46, 48 require practical loss scenarios wit
 
 ## A3 Strategic equity share per goal
 
-Each goal (P8) gets its own pot p with horizon h_p (years until the planned withdrawal) and its own risk share q_p. Default goal without a date: "Langfristiges Vermögen / Altersvorsorge" (long-term wealth / retirement provision) (h = 30).
+Each goal (P8) gets its own pot p with horizon h_p (years until the planned withdrawal) and its own risk share q_p. Default goal without a date: "Long-term wealth / retirement provision" (h = 30).
 
 **q_p = min(q_Horizont(h_p), q_Kapazität, q_Toleranz,p), rounded down to 10 percentage points.** The risk share q_p is the budget for global equities and all satellites (A4); the displayed pure equity share may be lower if gold is included.
 
@@ -131,7 +133,7 @@ Anchor points, **linearly interpolated monthly** in between:
 | ≤ 1 year | 0 % |
 
 - q_Horizont is recalculated **monthly**. Because q_p is rounded down to 10 percentage points, the effective share falls in steps of 10 percentage points; the interpolation determines **when** the next step is due (between 10 and 5 years roughly every 30 months, between 5 and 1 year roughly every 8 months). This prevents a single large rebalancing on one cut-off date
-- Implementation of a step: first via new monthly savings amounts (A6.1); sales according to A6.2 including the glide-path rule for the last 36 months, spread across tax years as far as the schedule allows, in order to use the saver's allowance (Sparer-Pauschbetrag) each time
+- Implementation of a step: first via new monthly savings amounts (A6.1); sales according to A6.2 including the glide-path rule for the last 36 months, spread across tax years as far as the schedule allows, in order to use the Sparer-Pauschbetrag (saver's allowance) each time
 - **Rationale for the direction:** Real equity drawdowns of over 70 % have occurred (Dimson, Marsh & Staunton, Yearbook 2026). After 1929, US equities remained below their peak in real terms until 1945 (about 15.5 years); the Japanese Nikkei price index (without dividends) took 34 years to regain its 1989 level. Over 30 years, a broadly diversified investor in 39 developed countries had a probability of 12 % of losing in real terms (Anarkulova, Cederburg & O'Doherty, 2022); in the associated working paper "Long-Horizon Losses", 13 % for domestic and 4 % for international equities. VERIFIZIERT (findings)
 - Anchor points ENTSCHEIDUNG (no single source)
 
@@ -184,7 +186,7 @@ All satellites of a pot together at most **20 % of the risk budget q_p** (i.e. 0
 | Satellite | Cap (share of q_p) | Evidence | Condition |
 |---|---|---|---|
 | S-Gold | 10 % | Over practicable horizons, gold is an unreliable inflation hedge (Erb & Harvey, 2013); benefit as diversification, not as a source of return | Only physically backed gold ETCs with an **exclusive** claim to delivery or to the proceeds of the deposited gold (BMF 20250514 Rn. 57); tax-free after > 1 year (A8.7) |
-| S-Faktor | 10 % | Factor premiums shrink by about 58 % after publication (McLean & Pontiff, 2016); 65 % of 452 anomalies already fail at t = 1.96 (Hou, Xue & Zhang, 2020); smart-beta indices no longer show any added value after ETF launch (Huang, Song & Xiang); US value lagged by around −56 % in 2007–2020; profitability (Novy-Marx, 2013) is the most robust | Only quality/profitability or multi-factor; written IPS commitment to a holding period of ≥ 15 years |
+| S-Factor | 10 % | Factor premiums shrink by about 58 % after publication (McLean & Pontiff, 2016); 65 % of 452 anomalies already fail at t = 1.96 (Hou, Xue & Zhang, 2020); smart-beta indices no longer show any added value after ETF launch (Huang, Song & Xiang); US value lagged by around −56 % in 2007–2020; profitability (Novy-Marx, 2013) is the most robust | Only quality/profitability or multi-factor; written IPS commitment to a holding period of ≥ 15 years |
 | S-Einzelaktien | 10 % in total, 2 % per stock | 57 % of US stocks performed worse over their lifetime than one-month T-bills; the entire net wealth creation since 1926 comes from 4 % of stocks (Bessembinder, 2018) | Only if the pot is ≥ 25,000 € (otherwise 2 % is below typical order sizes); each position is measured against K1; base rate shown in the purchase dialogue |
 | S-Taktik | 10 % | Strategy catalogue L3 (rotation), S1 (trend following) as independent sub-portfolios with their own universe | Only strategies that have passed their gates **and** the after-tax gate (A8.11) |
 | S-EM-Übergewicht | 10 % | no robust evidence | user choice only |
@@ -212,8 +214,10 @@ For tax purposes, FIFO applies **per depot, with a sub-depot counting as a separ
 
 - **Curated candidate list** of about 30 ISINs across all building blocks, updated **quarterly** from freely published mandatory documents: PRIIPs key information document (KID) and the issuer's factsheet, manually or as individual downloads of public PDFs at low frequency
 - Stored per field: value, source URL, as-of date, retrieval date (bitemporal, K2)
-- **Time axes and precedence** (v1.3): the point-in-time key is the **retrieval date**, not the as-of date; a value counts as known from its retrieval onwards. This is conservative: the actual publication lies between as-of date and retrieval and usually cannot be read from the document. A retrieval before the as-of date is not permitted. A correction is a new entry with a later retrieval date; nothing is overwritten. If several values of a field are known, the one with the latest as-of date applies; for equal as-of dates, the one retrieved last. Annual values (tracking difference per calendar year) carry their year and cannot have an as-of date before 31 December of that year. ENTSCHEIDUNG
-- **Verification status per value** (v1.3): VERIFIZIERT if the value was read in the primary document (KID, factsheet, prospectus, annual report, publication of the issuer or the exchange, statutory text); otherwise UNVERIFIZIERT (second hand, e.g. a comparison portal, or not yet checked). Second-hand values may be stored but are never VERIFIZIERT. ENTSCHEIDUNG
+- **Time axes and precedence** (v1.3): the point-in-time key is the **retrieval date**, not the as-of date; a value counts as known from its retrieval onwards. This is conservative: the actual publication lies between as-of date and retrieval and usually cannot be read from the document. A retrieval before the as-of date is not permitted. A correction is a new entry with a later retrieval date; nothing is overwritten. If several values of a field are known, the KID rule below decides first; otherwise the one with the latest as-of date applies, and for equal as-of dates the one retrieved last. Annual values (tracking difference per calendar year) carry their year and cannot have an as-of date before 31 December of that year. ENTSCHEIDUNG
+- **KID before factsheet** (v1.4; **specified, not yet implemented**: the instrument layer still ranks by as-of date only): if a field is known from a KID, the KID value applies, whatever the as-of dates of values from other documents; the latest-as-of-date rule then decides only among KID values. This applies to the TER and to every other field that appears in both the KID and the factsheet. The decision names the factsheet; giving the KID precedence over every other document as well keeps the ranking a total order (open point in A15). When the two disagree, both are stored, the KID value as VERIFIED and the factsheet value as a second entry, so that the disagreement stays visible in the field's history instead of being silently resolved. Reason: the KID is mandated by the PRIIPs Regulation with a prescribed calculation method and issuer liability; the factsheet is marketing material. ENTSCHEIDUNG
+- **Verification status per value** (v1.3): VERIFIED if the value was read in the primary document (KID, factsheet, prospectus, annual report, publication of the issuer or the exchange, statutory text); otherwise UNVERIFIED (second hand, e.g. a comparison portal, or not yet checked). Second-hand values may be stored but are never VERIFIED. ENTSCHEIDUNG
+- **Fund size in a foreign currency** (v1.4; **specified, not yet implemented**: the instrument layer still accepts fund size in EUR only): fund size gets a currency conversion, with USD as the primary reporting currency to convert from. The value is stored as published, in the currency of the document. For the hard filter (A5.2 no. 3) and the score (A5.3) it is converted into EUR at the rate **of the value's own as-of date**, never at today's rate; otherwise a stored fund size would silently change on every re-run. Rate source: the ECB euro foreign exchange reference rates (free, published daily). The rate is stored as a value with its own provenance like every other value (value, source URL, as-of date, retrieval date, verification status) and counts as known only from its retrieval, so at a cut-off date a converted fund size exists only if both the fund size and the rate were retrieved by then. ENTSCHEIDUNG
 - **Prohibited:** automated queries at justETF (AGB § 3.1 prohibits "Einsatz von Programmen zur automatisierten Kursabfrage" (use of programs for automated price queries)) and Vanguard (terms of use prohibit automated access); undocumented internal APIs of issuers (e.g. iShares). VERIFIZIERT (research; not re-checked by the review)
 - **Prices:** delayed data from Deutsche Börse (MiFIR mandatory publication, JSON download) after checking the licence terms for private use (UNVERIFIZIERT), otherwise free sources from the calculation core or broker export
 - Identifier matching ISIN ↔ ticker symbol via OpenFIGI (free of charge, 25 requests per minute without a key; terms of use UNVERIFIZIERT)
@@ -223,16 +227,17 @@ For tax purposes, FIFO applies **per depot, with a sub-depot counting as a separ
 1. UCITS fund or, for gold, an ETC under German law with an exclusive claim to delivery of or proceeds from deposited gold; tradable on Xetra or a German trading venue; KID available in German
 2. Index matches the building block (table A5.5)
 3. Fund size (AUM) ≥ 100m € (break-even size according to industry figures, Lipper 2025, VERIFIZIERT); for K1 and money market ≥ 500m € (ENTSCHEIDUNG; in Germany a fund closure realises gains and ends the tax deferral)
-4. At least 3 full calendar years of history; younger funds only with the label "neu" (new) and with net costs assessed via the TER with a 5-point deduction
-5. Equity ETFs meet the equity-fund definition (> 50 % equity participations, § 2 Abs. 6 InvStG) → 30 % partial exemption (Teilfreistellung). VERIFIZIERT
+4. At least 3 full calendar years of history; younger funds only with the label "new" and with net costs assessed via the TER with a 5-point deduction
+5. Equity ETFs meet the Aktienfonds (equity fund) definition (> 50 % equity participations, § 2 Abs. 6 InvStG) → 30 % Teilfreistellung (partial exemption). VERIFIZIERT
 6. Foreign-currency bonds: EUR-hedged
 7. Optional: savings-plan-eligible at the user's broker (P15)
 
-**Evaluation** (v1.3): every check ends as *erfüllt* (met), *verletzt* (violated) or *offen* (open). It is open if the value is missing at the cut-off date or is UNVERIFIZIERT: a second-hand value never lets a filter pass, but does not exclude the product for good either. A product is admissible only if no check is violated and none is open. An exception would let a single unchecked value block the evaluation of all candidates; a mere warning would let the product through. Clarifications:
+**Evaluation** (v1.3): every check ends as *fulfilled*, *violated* or *open*. It is open if the value is missing at the cut-off date or is UNVERIFIED: a second-hand value never lets a filter pass, but does not exclude the product for good either. A product is eligible only if no check is violated and none is open. An exception would let a single unchecked value block the evaluation of all candidates; a mere warning would let the product through. Clarifications:
 - On 1: not tradable on Xetra → open, because another German trading venue is permitted but is not recorded as a field
-- On 2: mechanical only where A5.5 names concrete indices (K1, K2 money market); for this, the index name is stored in the spelling of A5.5. Where A5.5 names only an index family (K2 bonds, S-Gold, S-Faktor), the check stays open until A5.5 names concrete indices. The alternative MSCI World + MSCI EM (A5.4, at the user's request) is not modelled
-- On 4: counted are the calendar years lying entirely between launch date and cut-off date; the current year never counts. Younger funds are not excluded but labelled "neu"
-- On 5: applies to K1 and S-Faktor. On 6: applies to K2 global bonds
+- On 2: mechanical; the index name is stored in the spelling of A5.5. Up to v1.3 this held only for K1 and K2 money market, and the check stayed open for the building blocks for which A5.5 named only an index family. Since v1.4, A5.5 names a concrete starting index for every building block (**not yet implemented**: the instrument layer still returns open for K2 EUR government bonds, K2 global bonds, S-Gold and S-Factor). The alternative MSCI World + MSCI EM (A5.4, at the user's request) is not modelled
+- On 3: the thresholds are in EUR; a fund size published in another currency is converted as set out in A5.1 (v1.4, not yet implemented)
+- On 4: counted are the calendar years lying entirely between launch date and cut-off date; the current year never counts. Younger funds are not excluded but labelled "new"
+- On 5: applies to K1 and S-Factor. On 6: applies to K2 global bonds
 - On 7: user-specific (P15), not part of the instrument master data and not checked there
 - ENTSCHEIDUNG
 
@@ -249,7 +254,7 @@ For tax purposes, FIFO applies **per depot, with a sub-depot counting as a separ
 | Fund size | 20 % | clamp(50 × log10(volume / 100m €); 0; 100): 100m → 0, 1bn → 50, 10bn → 100 | Closure risk |
 | Liquidity | 10 % | clamp(100 − 5 × XLM in basis points; 0; 100) | Trading costs; published free of charge. VERIFIZIERT |
 | Structure and counterparty risk | 10 % | fully physical 100, optimised physical 90, synthetic with multiple counterparties and transparent collateral 75, synthetic with one counterparty 60 | UCITS limits counterparty risk to 10 % of fund assets (Art. 52 Richtlinie 2009/65/EG, VERIFIZIERT). The withholding-tax advantage of synthetic ETFs is already contained in the TD and is not rewarded additionally |
-| History | 5 % | 10 × min(years since launch; 10) | Robustness of the TD |
+| History | 5 % | 10 × min(full calendar years since launch, counted as in A5.2 no. 4; 10) | Robustness of the TD. Full calendar years (v1.4, as in A5.2 no. 4): the TD is published per calendar year, so the history score counts the years for which a usable TD value exists. ENTSCHEIDUNG |
 | Transaction costs according to the KID | 5 % | clamp(100 − 500 × transaction costs in percentage points; 0; 100) | standardised, comparable |
 | User preference | 5 % | 100 if accumulating/distributing as desired, otherwise 0 | essentially tax-neutral (A8.4) |
 
@@ -267,16 +272,18 @@ MSCI ACWI and FTSE All-World are equivalent for this purpose (very similar count
 |---|---|
 | K1 Global equities | MSCI ACWI, MSCI ACWI IMI, FTSE All-World; alternatively MSCI World + MSCI EM at market weight |
 | K2 Money market | €STR |
-| K2 EUR government bonds | Euro government bond index (all maturities or maturity bands) |
-| K2 Global bonds | Global Aggregate or Global Government, EUR-hedged |
-| S-Gold | physical gold, deliverable |
-| S-Faktor | MSCI World Quality or multi-factor indices |
+| K2 EUR government bonds | FTSE EMU Government Bond Index (EGBI), all maturities or one of its maturity bands 1–3, 3–5, 5–7, 7–10, 10+ years |
+| K2 Global bonds | Bloomberg Global Aggregate, EUR-hedged |
+| S-Gold | physical gold, deliverable; reference price LBMA Gold Price PM, set by ICE Benchmark Administration at 15:00 London. The USD price is the auction price; LBMA's euro prices are indicative only |
+| S-Factor | MSCI World Quality (selection criteria: return on equity, stable year-over-year earnings growth, low financial leverage) |
+
+**Starting indices** (v1.4): up to v1.3 this table named only index families for K2 EUR government bonds ("euro government bond index"), K2 global bonds ("Global Aggregate or Global Government, EUR-hedged"), S-Gold ("physical gold, deliverable") and S-Factor ("MSCI World Quality or multi-factor indices"). The EGBI was chosen because it has the maturity bands that K2 needs for "maturity matching the horizon" (A4.1). ENTSCHEIDUNG
 
 ### A5.6 Product switch
 
 An existing product is not replaced solely because of a better score. **New monthly savings amounts always go into the best product.** A sale in order to switch is recommended if:
 - the old product violates a hard filter (e.g. announcement of closure), or
-- the **after-tax terminal wealth at the pot's horizon** with a switch is higher than without a switch by more than 0.5 % of the position (at least 50 €). Calculation with A8: "Behalten" (keep) = old net costs until the horizon, tax on the sale at the end; "Wechseln" (switch) = tax now (after using the saver's allowance and, where applicable, the most-favourable-assessment test (Günstigerprüfung)), new net costs, tax at the end. The tax on switching is predominantly a **prepayment** (it would be due at the end anyway), not a lost amount; the disadvantage lies in the lost tax deferral
+- the **after-tax terminal wealth at the pot's horizon** with a switch is higher than without a switch by more than 0.5 % of the position (at least 50 €). Calculation with A8: "Keep" = old net costs until the horizon, tax on the sale at the end; "Switch" = tax now (after using the Sparer-Pauschbetrag and, where applicable, the Günstigerprüfung (most-favourable-assessment test)), new net costs, tax at the end. The tax on switching is predominantly a **prepayment** (it would be due at the end anyway), not a lost amount; the disadvantage lies in the lost tax deferral
 - ENTSCHEIDUNG
 
 ### A5.7 Domicile
@@ -308,13 +315,13 @@ Given: target weights w_i (Σ w_i = 1), current values V_i, total value V = Σ V
 - Rationale: an annual review with a threshold requires very few transactions and achieves almost the same risk control as frequent rebalancing; annual rebalancing is favourable for investors without a loss-offsetting strategy (Vanguard, 2010; 2022; industry sources, academic evidence thin)
 - With only one global ETF and no safety building block in the depot, rebalancing does not apply
 
-### A6.3 Saver's allowance, most-favourable-assessment test and tax-free gain realisation
+### A6.3 Sparer-Pauschbetrag, Günstigerprüfung and tax-free gain realisation
 
-- The app estimates the year's investment income (distributions, advance lump sum (Vorabpauschale), planned sales) and recommends how to allocate the exemption order (Freistellungsauftrag) (1,000 €) across the German banks, or checks entitlement to a non-assessment certificate (NV-Bescheinigung) (A8.3)
+- The app estimates the year's investment income (distributions, Vorabpauschale (advance lump sum), planned sales) and recommends how to allocate the exemption order (Freistellungsauftrag) (1,000 €) across the German banks, or checks entitlement to an NV-Bescheinigung (non-assessment certificate) (A8.3)
 - **Tax-free gain realisation:** If tax-free headroom remains at year-end, a sale followed by a repurchase can raise the cost basis.
   - **Permissibility:** A sale and repurchase on the same day at different prices is not an abuse of legal arrangements under § 42 AO (BFH IX R 60/07 of 20090825); the BMF-Schreiben of 20250514 contains no wash-sale rule. VERIFIZIERT (by the review). Condition: execution via the exchange, no prearranged trades at the same price with the same counterparty
-  - **Headroom:** at least the unused saver's allowance; **with the most-favourable-assessment test, additionally the unused basic personal allowance (Grundfreibetrag)** (for working students with low income often the bigger lever). The app calculates the headroom with A8.3
-  - **Number of units:** lot by lot according to FIFO (A4.4); to realise X € of taxable income from an equity ETF, a gross gain of X / 0.7 is needed (partial exemption)
+  - **Headroom:** at least the unused Sparer-Pauschbetrag; **with the Günstigerprüfung, additionally the unused basic personal allowance (Grundfreibetrag)** (for working students with low income often the bigger lever). The app calculates the headroom with A8.3
+  - **Number of units:** lot by lot according to FIFO (A4.4); to realise X € of taxable income from an equity ETF, a gross gain of X / 0.7 is needed (Teilfreistellung)
   - **Benefit:** the tax saved later only arises on the later sale and only if that sale would be taxable; it is discounted at 3 % p.a. and weighted by the probability that the later sale is taxable (default 0.8, user setting). Recommendation only if this benefit exceeds trading costs plus spread at least threefold. ENTSCHEIDUNG
 - **Check side effects** (P16, P17): investment income can count towards total income for non-contributory **family insurance** in statutory health insurance (§ 10 SGB V); depot and reserve count as **assets under BAföG** (§§ 27–29 BAföG). The app shows the respective limits as soon as they are verified and warns against exceeding them. UNVERIFIZIERT (limit amounts)
 
@@ -333,7 +340,7 @@ Optional, following "Save More Tomorrow" (Benartzi & Thaler, 2004: savings rate 
 
 ## A7 Tactical overlays on the core
 
-Overlays temporarily change the weight of K1 in favour of K2 (money market). They are **separate, registered variants** in the strategy catalogue (section "Overlay-Varianten für das Kernmodul" (overlay variants for the core module)) and are counted and tested there like any strategy.
+Overlays temporarily change the weight of K1 in favour of K2 (money market). They are **separate, registered variants** in the strategy catalogue (section 'Overlay variants for the "Anlegen" (Invest) core module') and are counted and tested there like any strategy.
 
 | Overlay | Rule | Basis |
 |---|---|---|
@@ -350,22 +357,22 @@ Overlays temporarily change the weight of K1 in favour of K2 (money market). The
 
 ## A8 Tax engine (Germany, as of 2026)
 
-All rules with their statutory provision; values with the year of validity in a versioned table. **Future values that are not yet available (e.g. base rate (Basiszins) 2027) are never estimated**, but flagged as "noch nicht veröffentlicht" (not yet published); projections then use an explicitly marked assumed value.
+All rules with their statutory provision; values with the year of validity in a versioned table. **Future values that are not yet available (e.g. base rate (Basiszins) 2027) are never estimated**, but flagged as "not yet published"; projections then use an explicitly marked assumed value.
 
-### A8.1 Flat withholding tax (Abgeltungsteuer), solidarity surcharge, church tax
+### A8.1 Abgeltungsteuer (flat withholding tax), solidarity surcharge, church tax
 
-- Income tax on capital income: **ESt = (e − 4q) / (4 + k)** (§ 32d Abs. 1 S. 4 EStG), e = capital income after partial exemption (Teilfreistellung) and saver's allowance, q = creditable foreign tax, k = church tax rate **as a decimal number** (0; 0.08; 0.09). The decimal form follows necessarily from § 32d Abs. 1 S. 1–3 (ESt = 0.25 e − 0.25 × k × ESt ⇒ ESt = e / (4 + k)); the notation in the BMF-Schreiben (BMF circular) (Rn. 133: "9 × 1/12 = 0,75") is abbreviated. If church membership covers only part of the year, k is reduced on a pro-rata basis in twelfths (Rn. 133). VERIFIZIERT (by derivation)
-- Solidarity surcharge (SolZ): 5.5 % of the tax, **always** applied under the flat withholding tax (the exemption threshold (Freigrenze — all-or-nothing, unlike an allowance) does not apply; § 3 Abs. 3 S. 2, § 4 SolZG), rounded down to the cent. VERIFIZIERT
+- Income tax on capital income: **ESt = (e − 4q) / (4 + k)** (§ 32d Abs. 1 S. 4 EStG), e = capital income after Teilfreistellung and Sparer-Pauschbetrag, q = creditable foreign tax, k = church tax rate **as a decimal number** (0; 0.08; 0.09). The decimal form follows necessarily from § 32d Abs. 1 S. 1–3 (ESt = 0.25 e − 0.25 × k × ESt ⇒ ESt = e / (4 + k)); the notation in the BMF-Schreiben (BMF circular) (Rn. 133: "9 × 1/12 = 0,75") is abbreviated. If church membership covers only part of the year, k is reduced on a pro-rata basis in twelfths (Rn. 133). VERIFIZIERT (by derivation)
+- Solidarity surcharge (SolZ): 5.5 % of the tax, **always** applied under the Abgeltungsteuer (the exemption threshold (Freigrenze — all-or-nothing, unlike an allowance) does not apply; § 3 Abs. 3 S. 2, § 4 SolZG), rounded down to the cent. VERIFIZIERT
 - Church tax: k × ESt. Which federal state levies 8 % or 9 % is a user setting (mapping UNVERIFIZIERT)
 - **Total burden** (recalculated twice): without church tax 26.3750 %; with 8 % 27.8186 %; with 9 % 27.9951 %
 
-### A8.2 Saver's allowance (Sparer-Pauschbetrag)
+### A8.2 Sparer-Pauschbetrag
 
 1,000 € (individual assessment), 2,000 € (joint assessment); no deduction of actual income-related expenses; at most up to the amount of the income (§ 20 Abs. 9 EStG). VERIFIZIERT
 
-### A8.3 Most-favourable-assessment test (Günstigerprüfung) and NV-Bescheinigung (non-assessment certificate)
+### A8.3 Günstigerprüfung and NV-Bescheinigung
 
-- **Most-favourable-assessment test** (§ 32d Abs. 6 EStG): on application, all capital income of the year is taxed at the personal income tax rate if that is more favourable. The app always calculates both variants and shows the more favourable one. VERIFIZIERT
+- **Günstigerprüfung** (§ 32d Abs. 6 EStG): on application, all capital income of the year is taxed at the personal income tax rate if that is more favourable. The app always calculates both variants and shows the more favourable one. VERIFIZIERT
 - **Tax scale 2026** (§ 32a Abs. 1 EStG), taxable income (zvE) x rounded down to full euros, tax rounded down to full euros:
   - x ≤ 12,348: 0
   - 12,349 ≤ x ≤ 17,799: (914.51 × y + 1,400) × y, y = (x − 12,348) / 10,000
@@ -375,38 +382,38 @@ All rules with their statutory provision; values with the year of validity in a 
   - VERIFIZIERT (research), formula boundaries recalculated twice
 - Solidarity surcharge under the income tax scale: exemption threshold of 20,350 € income tax (2026, individual assessment). VERIFIZIERT
 - **When it helps:** the marginal tax rate of the scale reaches 25 % at a taxable income of about 20,774 € (2026). For students with low income, taxation at the personal rate is almost always more favourable. VERIFIZIERT (calculation)
-- **NV-Bescheinigung** (§ 44a Abs. 2 S. 1 Nr. 2 EStG): prevents tax withholding without any amount limit if, even with the most-favourable-assessment test, no tax is expected to arise; valid for at most 3 years, ends on 31 December. **Check in the app:** expected taxable income including capital income (after partial exemption and saver's allowance) ≤ basic personal allowance (Grundfreibetrag) (2026: 12,348 €; 2025: 12,096 €). Deductions for working students (Werkstudenten) include, among others, the employee lump-sum allowance (Arbeitnehmer-Pauschbetrag) of 1,230 € (§ 9a) and the special-expenses lump-sum allowance (Sonderausgaben-Pauschbetrag) of 36 € (§ 10c). VERIFIZIERT
+- **NV-Bescheinigung** (§ 44a Abs. 2 S. 1 Nr. 2 EStG): prevents tax withholding without any amount limit if, even with the Günstigerprüfung, no tax is expected to arise; valid for at most 3 years, ends on 31 December. **Check in the app:** expected taxable income including capital income (after Teilfreistellung and Sparer-Pauschbetrag) ≤ basic personal allowance (Grundfreibetrag) (2026: 12,348 €; 2025: 12,096 €). Deductions for working students (Werkstudenten) include, among others, the employee lump-sum allowance (Arbeitnehmer-Pauschbetrag) of 1,230 € (§ 9a) and the special-expenses lump-sum allowance (Sonderausgaben-Pauschbetrag) of 36 € (§ 10c). VERIFIZIERT
 - **Note:** the NV-Bescheinigung only has an effect at German banks; with foreign brokers, taxation takes place in the tax return
 
 ### A8.4 Investment funds (InvStG 2018)
 
-- **Fund types** (§ 2 InvStG): equity funds > 50 % equity participations; mixed funds ≥ 25 %; real estate funds > 50 % real estate. VERIFIZIERT
-- **Partial exemption** for private investors (§ 20 InvStG): equity funds 30 %, mixed funds 15 %, real estate funds 60 %, foreign real estate funds 80 %; bond, money market and commodity funds 0 %. Applies to distributions, advance lump sum (Vorabpauschale) and capital gains on disposal. VERIFIZIERT
+- **Fund types** (§ 2 InvStG): Aktienfonds > 50 % equity participations; mixed funds (Mischfonds) ≥ 25 %; real estate funds (Immobilienfonds) > 50 % real estate. VERIFIZIERT
+- **Teilfreistellung** for private investors (§ 20 InvStG): Aktienfonds 30 %, mixed funds 15 %, real estate funds 60 %, foreign real estate funds 80 %; bond, money market and commodity funds 0 %. Applies to distributions, Vorabpauschale and capital gains on disposal. VERIFIZIERT
 - **Accumulating vs. distributing:** same taxation system; the difference lies only in the timing (accumulation defers the tax to the sale, to the extent that the return exceeds 70 % of the base rate). VERIFIZIERT
-- **Withholding tax at fund level** (e.g. US withholding tax of an Irish fund) is not creditable for the investor; it is compensated on a flat-rate basis via the partial exemption. Withholding tax on the distribution of the fund itself is creditable (cap based on the income after partial exemption). VERIFIZIERT (system and BMF example)
+- **Withholding tax at fund level** (e.g. US withholding tax of an Irish fund) is not creditable for the investor; it is compensated on a flat-rate basis via the Teilfreistellung. Withholding tax on the distribution of the fund itself is creditable (cap based on the income after Teilfreistellung). VERIFIZIERT (system and BMF example)
 
-### A8.5 Advance lump sum (Vorabpauschale) (§ 18 InvStG)
+### A8.5 Vorabpauschale (§ 18 InvStG)
 
 - Basic return = redemption price (NAV, not the exchange price) at the beginning of the year × calculation rate, calculation rate = 0.7 × base rate with at least 3 decimal places (BMF Tz. 18.4); for share classes with a NAV in a foreign currency, conversion at the respective ECB rate (Tz. 18.6)
 - Basic return capped at: increase in value (price at year end − price at year start) + distributions of the year
-- **Advance lump sum = max(0; capped basic return − distributions)**
+- **Vorabpauschale = max(0; capped basic return − distributions)**
 - In the year of acquisition: reduction by 1/12 for each full month before the month of acquisition
 - Deemed received on the **first working day of the following year** and thus income of the following year; banks book it on the first bank working day (for 2026: 20270104)
 - Only for units held at the end of 31 December (BMF Tz. 18.4). VERIFIZIERT
 - Rounding: basic return per unit with at least 4 decimal places, commercial rounding to 2 places only after multiplication by the number of units (BMF Tz. 18.4). VERIFIZIERT
 - **Base rate:** 2023 2.55 %; 2024 2.29 %; 2025 2.53 %; **2026 3.20 %** (BMF-Schreiben of 20260113); 2027 not yet published. VERIFIZIERT (2025, 2026 from BMF PDF; 2023, 2024 via verbatim quotation)
-- **Liquidity note:** for accumulating funds and a German depot (brokerage account), the bank debits the tax on the advance lump sum from the settlement account at the beginning of January; the app sends a reminder in December if the exemption order (Freistellungsauftrag) is not sufficient
+- **Liquidity note:** for accumulating funds and a German depot (brokerage account), the bank debits the tax on the Vorabpauschale from the settlement account at the beginning of January; the app sends a reminder in December if the exemption order (Freistellungsauftrag) is not sufficient
 
 ### A8.6 Sale of fund units
 
-- Gain = proceeds − selling costs − acquisition costs including incidental acquisition costs (FIFO per depot or sub-depot, § 20 Abs. 4 S. 1 and S. 7 EStG; BMF 20250514 Rn. 97–98) − **all advance lump sums recognised during the holding period** (in full, before partial exemption; § 19 Abs. 1 InvStG); partial exemption thereafter. Can produce a loss. VERIFIZIERT
-- In the case of foreign custody, earlier advance lump sums are only deducted if they were declared or if the income in those years was within the saver's allowance (BMF Tz. 19.9). VERIFIZIERT → The app keeps an **advance lump sum register** per tranche
+- Gain = proceeds − selling costs − acquisition costs including incidental acquisition costs (FIFO per depot or sub-depot, § 20 Abs. 4 S. 1 and S. 7 EStG; BMF 20250514 Rn. 97–98) − **all Vorabpauschalen recognised during the holding period** (in full, before Teilfreistellung; § 19 Abs. 1 InvStG); Teilfreistellung thereafter. Can produce a loss. VERIFIZIERT
+- In the case of foreign custody, earlier Vorabpauschalen are only deducted if they were declared or if the income in those years was within the Sparer-Pauschbetrag (BMF Tz. 19.9). VERIFIZIERT → The app keeps a **Vorabpauschale register** per tranche
 
 ### A8.7 Gold
 
 - **Physically backed gold ETCs with an exclusive claim to delivery of, or to the proceeds from, the deposited gold** (Xetra-Gold type): private disposal transactions (private Veräußerungsgeschäfte) under § 23 Abs. 1 S. 1 Nr. 2 EStG, **tax-free after more than one year** of holding; delivery is not a disposal (BFH VIII R 35/14 and VIII R 4/15 of 20150512; IX R 33/17 of 20180206; VIII R 7/17 of 20200616; BMF 20250514 Rn. 57). VERIFIZIERT
 - EUWAX Gold II: same classification likely, but no BFH decision of its own found. UNVERIFIZIERT
-- Gold certificates that are not deliverable or not backed: capital income under § 20 (flat withholding tax); gold funds: capital income (BFH VIII R 15/18). VERIFIZIERT
+- Gold certificates that are not deliverable or not backed: capital income under § 20 (Abgeltungsteuer); gold funds: capital income (BFH VIII R 15/18). VERIFIZIERT
 - Gains under § 23 remain tax-free if their total in the year is **less than 1,000 €** (exemption threshold, § 23 Abs. 3 S. 5; from assessment period 2024, previously less than 600 €); at 1,000 € or more, the entire gain is taxable. Losses can only be offset against § 23 gains. VERIFIZIERT
 - Holding period based on the trade date (Schlusstag) of purchase and sale; calculation of the period according to §§ 187 Abs. 1, 188 Abs. 2 BGB (purchase 20260310 → tax-free from a sale on 20270311). VERIFIZIERT (by the review)
 - Tranche order: the law expressly prescribes FIFO for § 23 only for foreign currencies; the app keeps gold tranches individually and uses FIFO as a prudent assumption. UNVERIFIZIERT (administrative view)
@@ -414,27 +421,27 @@ All rules with their statutory provision; values with the year of validity in a 
 
 ### A8.8 Direct equities (satellite)
 
-- Dividends from the USA: 15 % withholding tax under the double taxation treaty (DBA) (Art. 10 Abs. 2 lit. b), provided that the W-8BEN form is on file with the broker (otherwise 30 %), creditable up to at most 25 % and up to the German tax on this income; **within the saver's allowance, the credit is lost** (§ 32d Abs. 5 EStG). VERIFIZIERT
-- Losses from share sales can only be offset against gains from share sales (§ 20 Abs. 6 S. 4 EStG; referral to the Federal Constitutional Court 2 BvL 3/21, no decision found as of 20260925). ETF losses go into the general pot. VERIFIZIERT (rule), UNVERIFIZIERT (status of the proceedings)
+- Dividends from the USA: 15 % withholding tax under the double taxation treaty (DBA) (Art. 10 Abs. 2 lit. b), provided that the W-8BEN form is on file with the broker (otherwise 30 %), creditable up to at most 25 % and up to the German tax on this income; **within the Sparer-Pauschbetrag, the credit is lost** (§ 32d Abs. 5 EStG). VERIFIZIERT
+- Losses from share sales can only be offset against gains from share sales (§ 20 Abs. 6 S. 4 EStG; referral to the Federal Constitutional Court 2 BvL 3/21, no decision found as of 20260925). ETF losses go into the general Verlusttopf (loss pot). VERIFIZIERT (rule), UNVERIFIZIERT (status of the proceedings)
 
 ### A8.9 German vs. foreign custodian bank
 
-- German bank: tax withholding, partial exemption, exemption order, loss pots, loss certificate (Verlustbescheinigung) can be requested until 15 December (§ 43a Abs. 3 EStG). VERIFIZIERT
-- Foreign broker (e.g. IBKR): no withholding tax; all income including self-calculated advance lump sums must be declared (§ 32d Abs. 3 EStG; mandatory tax assessment). The app generates an **annual summary for Anlage KAP / KAP-INV**. VERIFIZIERT (rule), UNVERIFIZIERT (behaviour of IBKR)
+- German bank: tax withholding, Teilfreistellung, exemption order, Verlusttöpfe, loss certificate (Verlustbescheinigung) can be requested until 15 December (§ 43a Abs. 3 EStG). VERIFIZIERT
+- Foreign broker (e.g. IBKR): no withholding tax; all income including self-calculated Vorabpauschalen must be declared (§ 32d Abs. 3 EStG; mandatory tax assessment). The app generates an **annual summary for Anlage KAP / KAP-INV**. VERIFIZIERT (rule), UNVERIFIZIERT (behaviour of IBKR)
 - **Recommendation for the core portfolio:** German custodian bank, because of automatic tax processing and the exemption order; IBKR optional for trading modules. ENTSCHEIDUNG
 
 ### A8.10 Tax-optimised sale order
 
 For each recommended sale, the app calculates per tranche (FIFO per depot or sub-depot is prescribed by law; the choice of product, sub-depot and timing is free):
 1. Amount remaining after tax for each sale variant
-2. Use of losses and saver's allowance
+2. Use of losses and Sparer-Pauschbetrag
 3. For gold: postponement if a tranche reaches the one-year period within 60 days and the overlay/rebalancing allows it
 4. Proposal of the product or sub-depot whose sale triggers the least tax, provided it corrects the same weight deviation
-5. Spreading of non-urgent sales across several tax years in order to use the saver's allowance and, where applicable, the basic personal allowance in each
+5. Spreading of non-urgent sales across several tax years in order to use the Sparer-Pauschbetrag and, where applicable, the basic personal allowance in each
 
 ### A8.11 After-tax gate for overlays and product switches
 
-- **Overlays (A7):** the backtest is recalculated with realised gains and the tax engine of this section in the user's situation (saver's allowance, most-favourable-assessment test, church tax). The gate uses **the same metric** as before tax (Calmar ratio against the static mix with the same investment ratio, strategy catalogue G7 item 8) and must be passed before **and** after tax
+- **Overlays (A7):** the backtest is recalculated with realised gains and the tax engine of this section in the user's situation (Sparer-Pauschbetrag, Günstigerprüfung, church tax). The gate uses **the same metric** as before tax (Calmar ratio against the static mix with the same investment ratio, strategy catalogue G7 item 8) and must be passed before **and** after tax
 - **Satellite S-Taktik:** as for overlays, with the metric of the respective strategy
 - **Product switch:** terminal wealth after tax (A5.6)
 - ENTSCHEIDUNG
@@ -448,12 +455,12 @@ For each recommended sale, the app calculates per tranche (FIFO per depot or sub
 - **Source:** Jordà-Schularick-Taylor Macrohistory Database (annual data, 18 countries from 1870, total returns on equities and bonds, short-term interest rates, consumer prices, exchange rates; free for non-commercial use, CC BY-NC-SA; last data year UNVERIFIZIERT)
 - **Base case: world portfolio.** For each year, a **GDP-weighted world portfolio** for equities, bonds and short-term interest rates is formed from the 18 countries, converted into USD (JST exchange rates) and expressed in real terms using US inflation. This corresponds better to a broadly diversified world index than drawing individual countries, and prevents hyperinflation years of individual countries from shaping the safety building block. Approximation: the perspective is USD-real, not EUR-real; EUR/USD exchange rate effects are not modelled (ENTSCHEIDUNG, explained)
 - **Method:** stationary block bootstrap (Politis & Romano, 1994) over the years of the world portfolio, **mean block length 10 years**, circular within the series. Equities, bonds, short-term interest rates and inflation of a given year are drawn **jointly** so that correlations and inflation phases are preserved
-- **Stress case "schlechtes Land" (bad country):** block bootstrap within **individual** countries (blocks do not cross country boundaries), including war and hyperinflation years; the 5th percentile is reported
+- **Stress case "bad country":** block bootstrap within **individual** countries (blocks do not cross country boundaries), including war and hyperinflation years; the 5th percentile is reported
 - **Never** a normal distribution alone or US history only: the US sample is flattered by survivorship bias (probability of a real 30-year loss 1.2 % compared with 12 % in 39 countries; Anarkulova et al., 2022). VERIFIZIERT
 
 ### A9.2 Centring on conservative assumptions
 
-The real log returns of the world portfolio are shifted per asset class: r'_t = r_t − mean(r) + ln(1 + g), where the mean is taken over the **source sample** (all years of the world portfolio). As a result, g corresponds to the **median geometric real growth rate** (the typical, middle path), not to the arithmetic expected value. At a volatility of around 20 %, the arithmetic expected value is about 2 percentage points higher, and the mean of terminal wealth lies well above the median. **The app therefore labels g everywhere as "mittlere reale Wachstumsrate (Median)" (median real growth rate)** and does not show a mean of terminal wealth as the headline figure.
+The real log returns of the world portfolio are shifted per asset class: r'_t = r_t − mean(r) + ln(1 + g), where the mean is taken over the **source sample** (all years of the world portfolio). As a result, g corresponds to the **median geometric real growth rate** (the typical, middle path), not to the arithmetic expected value. At a volatility of around 20 %, the arithmetic expected value is about 2 percentage points higher, and the mean of terminal wealth lies well above the median. **The app therefore labels g everywhere as "median real growth rate"** and does not show a mean of terminal wealth as the headline figure.
 
 | Asset class (real, before costs, geometric) | Pessimistic | Base | Optimistic |
 |---|---|---|---|
@@ -467,7 +474,7 @@ The real log returns of the world portfolio are shifted per asset class: r'_t = 
 
 - From the real return and the jointly drawn inflation, a **nominal** return is produced for each path: (1 + r_nom) = (1 + r_real) × (1 + π)
 - Ongoing costs = TD of the selected product (A5.3), otherwise TER
-- **Taxes on the nominal path** using A8: advance lump sum annually (cap = nominal increase in value; base rate as a marked assumption: last published value, variant 2 %), saver's allowance, partial exemption, tax on sale at the end of the target period
+- **Taxes on the nominal path** using A8: Vorabpauschale annually (cap = nominal increase in value; base rate as a marked assumption: last published value, variant 2 %), Sparer-Pauschbetrag, Teilfreistellung, tax on sale at the end of the target period
 - Then conversion back into **today's euros** using the inflation of the path
 - Presentation optionally before and after the tax on the sale at the end
 
@@ -477,8 +484,8 @@ The real log returns of the world portfolio are shifted per asset class: r'_t = 
 - Probability of having less than the sum of contributions (real) at the end of the target period
 - Largest decline in euros in year 10, 20 and 30 (sequence risk: late declines hit large amounts)
 - Probability of reaching a target amount (P8) by the target date
-- **Stress scenarios:** "Japan 1990" (20 years at 0 % real, deterministic), "−50 % im Jahr N, danach 15 Jahre Erholung" (−50 % in year N, then 15 years of recovery) (deterministic), "schlechtes Land" (A9.1, 5th percentile)
-- Label: "So könnte es kommen, keine Vorhersage" (This is how it could turn out, not a forecast)
+- **Stress scenarios:** "Japan 1990" (20 years at 0 % real, deterministic), "−50 % in year N, then 15 years of recovery" (deterministic), "bad country" (A9.1, 5th percentile)
+- Label: "This is how it could turn out, not a forecast"
 
 ### A9.5 Reproducibility
 
@@ -490,15 +497,15 @@ The real log returns of the world portfolio are shifted per asset class: r'_t = 
 
 On the first day of each month (and on events), the app generates a page with exactly these parts:
 
-1. **Key message in one sentence**, e.g. "Sparplan läuft weiter wie bisher, keine Umschichtung nötig." (Savings plan continues as before, no rebalancing needed.)
+1. **Key message in one sentence**, e.g. "Savings plan continues as before, no rebalancing needed."
 2. **Concrete actions** (if needed) as a list: product (name, ISIN), amount in €, buy/sell, reason; for sales, the expected tax
-3. **Status of the preconditions:** debts, reserve (e.g. "Reserve 2,4 von 3 Monaten" (reserve 2.4 of 3 months))
+3. **Status of the preconditions:** debts, reserve (e.g. "Reserve 2.4 of 3 months")
 4. **Portfolio vs. target:** actual and target weights per pot, deviation
 5. **Overlay status** (if activated): invested / partly cash, with reason
-6. **Tax year:** saver's allowance used, expected advance lump sum in January
+6. **Tax year:** Sparer-Pauschbetrag used, expected Vorabpauschale in January
 7. **Projection in brief:** median and 10th percentile at the target date per pot, change from the previous month
-8. **"Was sich geändert hat"** (What has changed) compared with the previous month
-9. **"Warum?"** (Why?) link to rules, evidence and IPS
+8. **"What has changed"** compared with the previous month
+9. **"Why?"** link to rules, evidence and IPS
 
 **Events that trigger a special recommendation:** announcement of the closure or merger of a held product; satellite exceeds its cap by more than 25 %; new base rate; profile change; lump sum; withdrawal request. Weight deviations outside the review date are only displayed (A6.2).
 
@@ -510,7 +517,7 @@ The recommendation is stored with all inputs and is immutable (append-only).
 
 Elements according to CFA Institute (2010), VERIFIZIERT: purpose and scope; responsibilities and review; return and risk objectives including benchmark; risk tolerance (rational and emotional); constraints (horizon, liquidity, taxes, special considerations such as sustainability); risk management (measurement, rebalancing rules, triggers).
 
-**App additions:** accepted loss in euros; reserve target; monthly savings amount and increase rule; permitted satellites with caps; the commitment "Was ich bei −50 % tue" (What I do at −50 %) in your own words; annual review date; custodian bank.
+**App additions:** accepted loss in euros; reserve target; monthly savings amount and increase rule; permitted satellites with caps; the commitment "What I do at −50 %" in your own words; annual review date; custodian bank.
 
 - Is created after the profile and confirmed by you (date)
 - Changes only with a waiting period (A12)
@@ -527,14 +534,14 @@ Elements according to CFA Institute (2010), VERIFIZIERT: purpose and scope; resp
 | Waiting period | Deviation from the IPS (lowering the share, selling the core) can only be confirmed after 72 hours | No direct evidence found; ENTSCHEIDUNG |
 | Frequency | Warning at more than 4 manual transactions per month in the core portfolio (savings plan executions do not count) | Overtrading is costly (Barber & Odean, 2000: most active fifth 11.4 % net compared with 17.9 % market return) |
 | Performance chasing | Notice when a satellite is to be topped up after a strong preceding period | Return gap caused by entries and exits (Dichev, 2007) |
-| Review | Annual review: what would "nichts tun" (doing nothing) have produced? | ENTSCHEIDUNG |
+| Review | Annual review: what would "doing nothing" have produced? | ENTSCHEIDUNG |
 
 ---
 
 ## A13 Retirement provision notes (informative)
 
 - **Altersvorsorgedepot** (retirement provision depot) (Altersvorsorgereformgesetz, passed by the Bundestag on 20260327, Bundesrat 20260508; products from **20270101**): subsidised depot without a guarantee requirement; allowance of 50 % on contributions up to 360 € and 25 % on contributions from 360.01 to 1,800 € (basic allowance at most 540 €); **one-off career starter bonus of 200 € for contracts concluded before the 25th birthday**; cost cap for the standard product 1.0 %; no taxation of fund income within the contract (§ 16 Abs. 2 InvStG), but taxation of the payouts instead. VERIFIZIERT (official summaries; statutory text, eligibility of students and details UNVERIFIZIERT)
-- Once available, the app shows a comparison: subsidised Altersvorsorgedepot vs. free depot for the pot "Altersvorsorge" (retirement provision) (allowance, costs, after tax at payout, restricted availability)
+- Once available, the app shows a comparison: subsidised Altersvorsorgedepot vs. free depot for the pot "retirement provision" (allowance, costs, after tax at payout, restricted availability)
 - **Occupational pension via salary conversion (Entgeltumwandlung)** for working students: with income below the basic personal allowance hardly any tax saving, later taxation of the payout; usually unattractive. The app shows the calculation but recommends nothing without review. VERIFIZIERT (limits § 1a BetrAVG, § 3 Nr. 63 EStG), social security status UNVERIFIZIERT
 - **Frühstart-Rente** (early-start pension): only a cabinet draft, concerns children aged 6 to 18, not relevant for you
 
@@ -545,22 +552,22 @@ Elements according to CFA Institute (2010), VERIFIZIERT: purpose and scope; resp
 | No. | Test | Inputs | Expected |
 |---|---|---|---|
 | TA1 | Total tax rate | k = 0 / 0.08 / 0.09 | 26.3750 % / 27.8186 % / 27.9951 % |
-| TA2 | Advance lump sum, basic case | 10,000 → 11,000, no distribution, base rate 3.20 %, purchase in January | 224.00 €; taxable after partial exemption 156.80 €; without saver's allowance 39.20 € + SolZ 2.15 € = 41.35 €; with saver's allowance 0 € |
+| TA2 | Vorabpauschale, basic case | 10,000 → 11,000, no distribution, base rate 3.20 %, purchase in January | 224.00 €; taxable after Teilfreistellung 156.80 €; without Sparer-Pauschbetrag 39.20 € + SolZ 2.15 € = 41.35 €; with Sparer-Pauschbetrag 0 € |
 | TA3 | Cap | 10,000 → 10,100 | 100.00 € |
 | TA4 | Loss year | 10,000 → 9,000 | 0 € |
 | TA5 | Distributing fund | 10,000 → 10,800, distribution 150 € | 74.00 € |
 | TA6 | Acquisition in March | as TA2, purchase 15 March | 186.67 € |
-| TA7 | BMF example | base rate 1 %, price 100 → 100.50, distribution 0.10; purchase 10 July | 0.50 or 0.25 per unit |
-| TA8 | Sale after advance lump sum | TA2, sale 20270630 at 12,000, without transaction costs | Gain 1,776.00 €; after partial exemption 1,243.20 €; total capital income 2027 1,400.00 € (= 70 % × 2,000); **tax assessment** without saver's allowance: 350.00 € + SolZ 19.25 € = 369.25 €; **bank withholding in two transactions** (advance lump sum, sale): SolZ 2.15 € + 17.09 € = 19.24 €; with saver's allowance (tax assessment) 100.00 € + 5.50 € = 105.50 € |
+| TA7 | BMF example | base rate 1 %, price 100 → 100.50, distribution 0.10; purchase 10 July | 0.50 per unit for a full year; 0.25 with the purchase on 10 July |
+| TA8 | Sale after Vorabpauschale | TA2, sale 20270630 at 12,000, without transaction costs | Gain 1,776.00 €; after Teilfreistellung 1,243.20 €; total capital income 2027 1,400.00 € (= 70 % × 2,000); **tax assessment** without Sparer-Pauschbetrag: 350.00 € + SolZ 19.25 € = 369.25 €; **bank withholding in two transactions** (Vorabpauschale, sale): SolZ 2.15 € + 17.09 € = 19.24 €; with Sparer-Pauschbetrag (tax assessment) 100.00 € + 5.50 € = 105.50 € |
 | TA9 | Tax scale 2026 | zvE 12,348 / 15,000 / 20,000 / 30,000 | 0 / 435 / 1,570 / 4,217 € |
-| TA10 | Most-favourable-assessment test | Marginal tax rate at 20,774 € | ≈ 25 % |
+| TA10 | Günstigerprüfung | Marginal tax rate at 20,774 € | ≈ 25 % |
 | TA11 | Gold holding period and exemption threshold | Purchase 20260310, sale 20270310 or 20270311; annual § 23 gain of 999.99 € or 1,000.00 € | taxable or tax-free respectively; 999.99 € tax-free, 1,000.00 € fully taxable |
 | TA12 | Equity share | Horizon 20 yrs, stable income, L€ sufficient | 100 %; with fluctuating income 70 %; horizon 7 yrs: q_Horizont = 60 + (7 − 5)/5 × 20 = 68 % → rounded down 60 % |
 | TA12b | Tolerance across two pots | Pots A (h 20 yrs, B5 10,000 €) and B (h 2 yrs, B5 10,000 €), L€ 5,000 €, D_Stress 0.5 | q_Tol,A = min(1; 5,000/5,000) = 100 %, remaining budget 0; q_Tol,B = 0 % (horizon limit at 2 yrs is 15 % anyway) |
 | TA12c | Tolerance without a depot | Σ B5 < 1,000 € | Tolerance limit does not apply, notice appears |
 | TA13 | Cash-flow rebalancing | w = (0.8; 0.2), V = (9,000; 1,000), C = 500 | T = (8,400; 2,100), F = (0; 1,100), x = (0; 500) |
 | TA14 | Cash flow with a small shortfall | w = (0.8; 0.2), V = (8,000; 1,950), C = 500 | T = (8,360; 2,090), F = (360; 140), Σ F = 500, x = (360; 140) |
-| TA14b | Minimum amount | as TA14, minimum amount 150 € | Month 1: x = (500; 0), open claim of building block 2: 140 €; payout as soon as claim + x ≥ 150 € |
+| TA14b | Minimum amount | as TA14, minimum amount 150 € | Month 1: x = (500; 0), open entitlement of building block 2: 140 €; payout as soon as entitlement + x ≥ 150 € |
 | TA14c | No contribution | C = 0, portfolio exactly on target | x = (0; 0), no division by zero |
 | TA15 | Preconditions | Overdraft (Dispo) 12 %; reserve 1.5 of 3 months | V1 applies; after repayment V3: 50/50 |
 | TA16 | ETF scoring | Synthetic candidates with known metrics | Ranking and point scores exactly as calculated by hand; hard filters exclude funds that are too small and too young |
@@ -568,7 +575,7 @@ Elements according to CFA Institute (2010), VERIFIZIERT: purpose and scope; resp
 | TA18 | After-tax gate | Overlay with a pre-tax advantage of 0.3 % p.a., but annual realisation of gains | Gate fails if the after-tax advantage ≤ 0 |
 | TA19 | Look-ahead | Truncation and perturbation test for ETF metrics (as-of date), base rate (publication), projection inputs | No change up to t |
 | TA20 | ETF scales | TD −0.10 / −0.11 / +0.20 pp | After rounding to 0.05: −0.10 / −0.10 / +0.20 → 25 / 25 / 100 points |
-| TA21 | Product switch | Old fund TD −0.30, new TD 0.00, gain realisable tax-free within the saver's allowance | Switch recommended; the same case with a taxable gain and 3 years of remaining horizon: no switch |
+| TA21 | Product switch | Old fund TD −0.30, new TD 0.00, gain realisable tax-free within the Sparer-Pauschbetrag | Switch recommended; the same case with a taxable gain and 3 years of remaining horizon: no switch |
 | TA22 | Glide path shortly before the target | Pot with target date 20290930, q_p = 30 % on 20260930, depot 10,000 €, monthly savings amount 100 € | Step to 20 % due as soon as q_Horizont < 30 % (from 20261001); quarterly review 20261231 recommends a sale of around 1,000 € (savings amounts of 300 € are not sufficient); q_p = 0 implemented by 20280930 at the latest; the annual profile hysteresis does not delay any of these steps |
 
 All tax tests with `Decimal`; values TA1–TA10 were recalculated twice independently.
@@ -586,26 +593,32 @@ All tax tests with `Decimal`; values TA1–TA10 were recalculated twice independ
 | Withholding tax of German and Luxembourg funds on US dividends | Before A5 |
 | Classification of EUWAX Gold II under § 23 | Before recommending S-Gold |
 | Altersvorsorgedepot: statutory text, eligibility of students | Before 2027 |
-| Status of BVerfG 2 BvL 3/21 (share loss pot) | Annually |
+| Status of BVerfG 2 BvL 3/21 (Aktienverlusttopf) | Annually |
 | Limits of family insurance (§ 10 SGB V) and BAföG asset allowance | Before A6.3 |
 | Calibration of D_Stress from the JST world portfolio (placeholder 0.60) | Phase 1 |
 | Tranche order under § 23 (administrative view) | Before recommending S-Gold |
 | Review overlay variants OV-L2, OV-L4 (registered in strategy catalogue v1.2) | Phase 3 |
 | Base rate 2027 | January 2027 |
+| Rate for a fund size whose as-of date has no ECB reference rate (weekend, TARGET holiday). The strategy catalogue G4 carries the last published rate forward; doing the same here would be consistent | Before implementing the currency conversion (A5.1) |
+| Fund size of the fund or of the share class (A5.2 no. 3) | Before A5 |
+| Exact spelling of each A5.5 index for filter 2 and the A5.3 peer group: variant (net/gross), currency and hedging, names of the EGBI maturity bands | Before filter 2 is implemented for the v1.4 starting indices |
+| KID precedence (A5.1) against documents other than the factsheet (prospectus, annual report). v1.4 gives the KID precedence over all of them, so that the ranking stays a total order | Before implementing the precedence |
 
 ---
 
 ## Changelog
 
-**v1.3 (20260925)** Instrument master data layer: A5.1 extended by time axes, precedence and verification status per value; A5.2 extended by the three-valued evaluation (erfüllt / verletzt / offen) and clarifications on filters 1, 2, 4, 5, 6 and 7. Not yet independently reviewed
+**v1.4 (20260925)** The English text becomes binding; the German original of v1.3 moves to `archive/20260925_anlage-spezifikation.md` and is no longer binding. German tax and legal terms (Vorabpauschale, Teilfreistellung, Günstigerprüfung, NV-Bescheinigung, Abgeltungsteuer, Sparer-Pauschbetrag, Verlusttöpfe, Aktienfonds, all § references) stay as proper nouns. Strings shown to the user are English. Vocabulary matches the code: S-Factor; hard-filter verdicts fulfilled / violated / open; eligible; label "new"; per-value status VERIFIED / UNVERIFIED. Decisions: starting indices for K2 EUR government bonds, K2 global bonds, S-Gold and S-Factor (A5.5, A5.2 on 2); history score in full calendar years (A5.3); fund size converted at the ECB reference rate of the value's own as-of date (A5.1, A5.2 on 3); KID before factsheet (A5.1). Implementation status: the currency conversion, the KID precedence and filter 2 for the new starting indices are not yet in the code. Editorial: TA7 states which value belongs to which case; "open entitlement" used throughout. Not yet independently reviewed
+
+**v1.3 (20260925)** Instrument master data layer: A5.1 extended by time axes, precedence and verification status per value; A5.2 extended by the three-valued evaluation (fulfilled / violated / open) and clarifications on filters 1, 2, 4, 5, 6 and 7. Not yet independently reviewed
 
 **v1.2 (20260925)** Self-review on filing: the annual hysteresis (A3.3 item 6) applied, according to its wording, to q_p as a whole and would have delayed the glide path reduction in the final years before the target by up to one year → now applies only to tolerance and capacity; q_Horizont monthly; new glide path rule for the last 36 months (A6.2) with test TA22; justification in A3.1 adjusted to the 10-percentage-point rounding; test table sorted
 
 **v1.1 (20260925)** after independent review (2 critical, 10 major, 11 minor findings; all test values TA1–TA14 and the 2026 tax scale including z = (x − 17,799)/10,000 confirmed):
 - Critical: tolerance limit was circular and undefined for new investors → B5 deterministic at q = 100 %, lower limit 1,000 €, loss budget across all pots (longest horizon first), annual recalculation with hysteresis
 - Critical: projection incorrectly specified → g is the median geometric rate (median), labelled as such; taxes on nominal paths with jointly drawn inflation; world portfolio instead of individual countries in the base case, individual countries only in the stress case; annual data, block length 10 years; test related to the source sample
-- Major: FIFO per depot or sub-depot, one sub-depot per pot; gain realisation with BFH basis, basic personal allowance headroom, discounting, side effects on BAföG and family insurance; overlays as separately registered variants only on K1 (L3, S1 as satellite); linear glide path; product switch based on terminal wealth after tax; fixed scoring scales with materiality threshold, comparison only within one index, own index choice; D_Stress placeholder 0.60; cash-flow algorithm cleaned up (zero case, minimum amount with open claim, standing order); rebalancing only on the review date with band min(5 pp; 25 %); satellite limit uniformly relative to q
-- Minor: unit of k derived; gold exemption threshold "less than 1,000 €" from 2024, holding period under the BGB confirmed, wording of the delivery claim; advance lump sum with NAV, calculation rate, reference date 31 December verified; selling costs; bank withholding vs. tax assessment for the SolZ; reserve target ≥ starter reserve; classification of the loss probabilities and of the Japan example; realistic equity share at the start; transaction warning excluding savings plans; evidence on viewing frequency; W-8BEN; citations corrected (Bessembinder 57 %, Barber & Odean, Grable-Lytton retrospective, Anarkulova versions)
+- Major: FIFO per depot or sub-depot, one sub-depot per pot; gain realisation with BFH basis, basic personal allowance headroom, discounting, side effects on BAföG and family insurance; overlays as separately registered variants only on K1 (L3, S1 as satellite); linear glide path; product switch based on terminal wealth after tax; fixed scoring scales with materiality threshold, comparison only within one index, own index choice; D_Stress placeholder 0.60; cash-flow algorithm cleaned up (zero case, minimum amount with open entitlement, standing order); rebalancing only on the review date with band min(5 pp; 25 %); satellite limit uniformly relative to q
+- Minor: unit of k derived; gold exemption threshold "less than 1,000 €" from 2024, holding period under the BGB confirmed, wording of the delivery claim; Vorabpauschale with NAV, calculation rate, reference date 31 December verified; selling costs; bank withholding vs. tax assessment for the SolZ; reserve target ≥ starter reserve; classification of the loss probabilities and of the Japan example; realistic equity share at the start; transaction warning excluding savings plans; evidence on viewing frequency; W-8BEN; citations corrected (Bessembinder 57 %, Barber & Odean, Grable-Lytton retrospective, Anarkulova versions)
 
 ---
 
@@ -662,4 +675,5 @@ All tax tests with `Decimal`; values TA1–TA10 were recalculated twice independ
 - justETF: general terms and conditions (as of 20250618).
 - Deutsche Börse: Xetra Liquidity Measure; MiFIR publications of delayed data.
 - Jordà-Schularick-Taylor Macrohistory Database. https://www.macrohistory.net/
+- Index and reference-rate providers named in A5.1 and A5.5 by the v1.4 decisions; their methodology documents have not been read for this specification: FTSE Russell (FTSE EMU Government Bond Index), Bloomberg (Bloomberg Global Aggregate), ICE Benchmark Administration and LBMA (LBMA Gold Price PM), MSCI (MSCI World Quality), European Central Bank (euro foreign exchange reference rates).
 
