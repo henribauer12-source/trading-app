@@ -1,12 +1,12 @@
 ---
 title: Trading-Analyse-App – Anlage-Spezifikation (Kernmodul Anlageberater)
 date: 20260925
-status: v1.2, unabhängig geprüft, Befunde eingearbeitet; Gleitpfad-Umsetzung präzisiert
+status: v1.3; bis v1.2 unabhängig geprüft, Befunde eingearbeitet; Ergänzungen v1.3 (A5.1, A5.2) noch nicht unabhängig geprüft
 owner: Henri
 basis: 20260925_trading-app-plan-v9.md, 20260925_rechenkern-spezifikation-v1.4.md, 20260925_strategie-katalog.md, 20260924_trading-app-qualitaetsstandards.md
 ---
 
-# Anlage-Spezifikation v1.2 – Kernmodul "Anlegen"
+# Anlage-Spezifikation v1.3 – Kernmodul "Anlegen"
 
 **Hinweis:** Dieses Dokument spezifiziert ein privates Analysewerkzeug. Es ist keine Anlage- oder Steuerberatung. Die Steuerregeln sind nach bestem Wissen aus Gesetzestext und BMF-Schreiben abgeleitet und vor produktiver Nutzung mit einer Steuerberatung abzugleichen.
 
@@ -209,6 +209,8 @@ FIFO gilt steuerlich **je Depot, wobei ein Unterdepot als eigenes Depot zählt**
 
 - **Kuratierte Kandidatenliste** von etwa 30 ISINs über alle Bausteine, **vierteljährlich** aktualisiert aus frei veröffentlichten Pflichtdokumenten: PRIIPs-Basisinformationsblatt (KID) und Factsheet des Emittenten, manuell oder als einzelner Download öffentlicher PDFs mit niedriger Frequenz
 - Je Feld gespeichert: Wert, Quell-URL, Stand-Datum, Abrufdatum (bitemporal, K2)
+- **Zeitachsen und Vorrang** (v1.3): Point-in-time-Schlüssel ist das **Abrufdatum**, nicht das Stand-Datum; ab dem Abruf gilt ein Wert als bekannt. Das ist konservativ: Die tatsächliche Veröffentlichung liegt zwischen Stand und Abruf und ist aus dem Dokument meist nicht ablesbar. Ein Abruf vor dem Stand-Datum ist unzulässig. Eine Korrektur ist ein neuer Eintrag mit späterem Abrufdatum; nichts wird überschrieben. Sind zu einem Feld mehrere Werte bekannt, gilt der mit dem jüngsten Stand-Datum, bei gleichem Stand der zuletzt abgerufene. Jahreswerte (Tracking-Differenz je Kalenderjahr) tragen ihr Jahr und können kein Stand-Datum vor dem 31.12. dieses Jahres haben. ENTSCHEIDUNG
+- **Prüfstatus je Wert** (v1.3): VERIFIZIERT, wenn der Wert im Primärdokument gelesen wurde (KID, Factsheet, Verkaufsprospekt, Jahresbericht, Veröffentlichung des Emittenten oder der Börse, Gesetzestext); sonst UNVERIFIZIERT (zweite Hand, etwa ein Vergleichsportal, oder noch nicht abgeglichen). Werte zweiter Hand dürfen gespeichert werden, sind aber nie VERIFIZIERT. ENTSCHEIDUNG
 - **Verboten:** automatisierte Abfragen bei justETF (AGB § 3.1 untersagt "Einsatz von Programmen zur automatisierten Kursabfrage") und Vanguard (Nutzungsbedingungen untersagen automatisierten Zugriff); undokumentierte interne APIs von Emittenten (z. B. iShares). VERIFIZIERT (Recherche; von der Prüfung nicht erneut geprüft)
 - **Kurse:** verzögerte Daten der Deutschen Börse (MiFIR-Pflichtveröffentlichung, JSON-Download) nach Prüfung der Lizenzbedingungen für die private Nutzung (UNVERIFIZIERT), sonst kostenlose Quellen aus dem Rechenkern bzw. Broker-Export
 - Identifier-Abgleich ISIN ↔ Börsenkürzel über OpenFIGI (kostenlos, 25 Anfragen pro Minute ohne Schlüssel; Nutzungsbedingungen UNVERIFIZIERT)
@@ -222,6 +224,14 @@ FIFO gilt steuerlich **je Depot, wobei ein Unterdepot als eigenes Depot zählt**
 5. Aktien-ETFs erfüllen die Aktienfonds-Definition (> 50 % Kapitalbeteiligungen, § 2 Abs. 6 InvStG) → 30 % Teilfreistellung. VERIFIZIERT
 6. Anleihen in Fremdwährung: EUR-abgesichert
 7. Optional: beim Broker des Nutzers sparplanfähig (P15)
+
+**Auswertung** (v1.3): Jede Prüfung endet mit *erfüllt*, *verletzt* oder *offen*. Offen ist sie, wenn der Wert zum Stichtag fehlt oder UNVERIFIZIERT ist: Ein Wert zweiter Hand lässt einen Filter nie bestehen, schließt aber auch nicht endgültig aus. Zulässig ist ein Produkt nur, wenn keine Prüfung verletzt und keine offen ist. Eine Ausnahme würde einen einzigen ungeprüften Wert die Auswertung aller Kandidaten blockieren lassen; eine bloße Warnung ließe das Produkt durch. Präzisierungen:
+- Zu 1: nicht an Xetra handelbar → offen, weil ein anderer deutscher Handelsplatz zulässig ist, aber nicht als Feld erfasst wird
+- Zu 2: mechanisch nur, wo A5.5 konkrete Indizes nennt (K1, K2 Geldmarkt); der Indexname wird dafür in der Schreibweise von A5.5 gespeichert. Wo A5.5 nur eine Indexfamilie nennt (K2 Anleihen, S-Gold, S-Faktor), bleibt die Prüfung offen, bis A5.5 konkrete Indizes nennt. Die Alternative MSCI World + MSCI EM (A5.4, auf Nutzerwunsch) ist nicht abgebildet
+- Zu 4: gezählt werden die Kalenderjahre, die vollständig zwischen Auflagedatum und Stichtag liegen; das laufende Jahr zählt nie. Jüngere Fonds sind nicht ausgeschlossen, sondern "neu"
+- Zu 5: gilt für K1 und S-Faktor. Zu 6: gilt für K2 Globale Anleihen
+- Zu 7: nutzerbezogen (P15), kein Teil der Instrument-Stammdaten und dort nicht geprüft
+- ENTSCHEIDUNG
 
 ### A5.3 Bewertung auf festen Skalen (0–100)
 
@@ -583,6 +593,8 @@ Alle Steuertests mit `Decimal`; Werte TA1–TA10 wurden zweifach unabhängig nac
 ---
 
 ## Änderungsprotokoll
+
+**v1.3 (20260925)** Instrument-Stammdatenschicht: A5.1 um Zeitachsen, Vorrang und Prüfstatus je Wert ergänzt; A5.2 um die dreiwertige Auswertung (erfüllt / verletzt / offen) und Präzisierungen zu den Filtern 1, 2, 4, 5, 6 und 7. Noch nicht unabhängig geprüft
 
 **v1.2 (20260925)** Eigenprüfung beim Ablegen: Die jährliche Hysterese (A3.3 Punkt 6) galt dem Wortlaut nach für q_p insgesamt und hätte die Gleitpfad-Absenkung in den letzten Jahren vor dem Ziel um bis zu ein Jahr verzögert → gilt nur noch für Toleranz und Kapazität; q_Horizont monatlich; neue Gleitpfad-Regel für die letzten 36 Monate (A6.2) mit Test TA22; Begründung in A3.1 an die 10-Prozentpunkt-Rundung angepasst; Testtabelle geordnet
 

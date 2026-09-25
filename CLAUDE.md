@@ -25,7 +25,7 @@ All in `docs/`. When they disagree, the higher one wins; raise the conflict inst
 2. `20260925_rechenkern-spezifikation-v1.4.md` — every trading/valuation formula, convention,
    cost/execution rule, the prediction engine (PE0–PE13), and the test catalogue (T1–T40) with
    reference values and tolerances.
-3. `20260925_anlage-spezifikation.md` (v1.2) — **the core module "Anlegen"**: profile, equity
+3. `20260925_anlage-spezifikation.md` (v1.3) — **the core module "Anlegen"**: profile, equity
    share per goal (A3), building blocks, ETF selection (A5), savings plan and rebalancing (A6),
    overlays (A7), German tax engine (A8, `Decimal` only), projection (A9), monthly
    recommendation, IPS, guardrails; tests TA1–TA22. Wins over 4–6 for anything in A1–A15.

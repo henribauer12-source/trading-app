@@ -1,7 +1,7 @@
 ---
 title: Trading Analysis App – Investment Specification (Core Module Investment Adviser)
 date: 20260925
-status: v1.2, independently reviewed, findings incorporated; glide-path implementation specified more precisely
+status: v1.3; independently reviewed up to v1.2, findings incorporated; additions in v1.3 (A5.1, A5.2) not yet independently reviewed
 owner: Henri
 basis: 20260925_trading-app-plan-v9.md, 20260925_rechenkern-spezifikation-v1.4.md, 20260925_strategie-katalog.md, 20260924_trading-app-qualitaetsstandards.md
 language: en
@@ -9,7 +9,7 @@ translation_of: 20260925_anlage-spezifikation.md
 binding: German original
 ---
 
-# Investment Specification v1.2 – "Anlegen" (Invest) Core Module
+# Investment Specification v1.3 – "Anlegen" (Invest) Core Module
 
 **Note:** This document specifies a private analysis tool. It is not investment or tax advice. The tax rules have been derived to the best of our knowledge from the statutory text and BMF-Schreiben (BMF circulars) and must be checked with a tax adviser before productive use.
 
@@ -212,6 +212,8 @@ For tax purposes, FIFO applies **per depot, with a sub-depot counting as a separ
 
 - **Curated candidate list** of about 30 ISINs across all building blocks, updated **quarterly** from freely published mandatory documents: PRIIPs key information document (KID) and the issuer's factsheet, manually or as individual downloads of public PDFs at low frequency
 - Stored per field: value, source URL, as-of date, retrieval date (bitemporal, K2)
+- **Time axes and precedence** (v1.3): the point-in-time key is the **retrieval date**, not the as-of date; a value counts as known from its retrieval onwards. This is conservative: the actual publication lies between as-of date and retrieval and usually cannot be read from the document. A retrieval before the as-of date is not permitted. A correction is a new entry with a later retrieval date; nothing is overwritten. If several values of a field are known, the one with the latest as-of date applies; for equal as-of dates, the one retrieved last. Annual values (tracking difference per calendar year) carry their year and cannot have an as-of date before 31 December of that year. ENTSCHEIDUNG
+- **Verification status per value** (v1.3): VERIFIZIERT if the value was read in the primary document (KID, factsheet, prospectus, annual report, publication of the issuer or the exchange, statutory text); otherwise UNVERIFIZIERT (second hand, e.g. a comparison portal, or not yet checked). Second-hand values may be stored but are never VERIFIZIERT. ENTSCHEIDUNG
 - **Prohibited:** automated queries at justETF (AGB § 3.1 prohibits "Einsatz von Programmen zur automatisierten Kursabfrage" (use of programs for automated price queries)) and Vanguard (terms of use prohibit automated access); undocumented internal APIs of issuers (e.g. iShares). VERIFIZIERT (research; not re-checked by the review)
 - **Prices:** delayed data from Deutsche Börse (MiFIR mandatory publication, JSON download) after checking the licence terms for private use (UNVERIFIZIERT), otherwise free sources from the calculation core or broker export
 - Identifier matching ISIN ↔ ticker symbol via OpenFIGI (free of charge, 25 requests per minute without a key; terms of use UNVERIFIZIERT)
@@ -225,6 +227,14 @@ For tax purposes, FIFO applies **per depot, with a sub-depot counting as a separ
 5. Equity ETFs meet the equity-fund definition (> 50 % equity participations, § 2 Abs. 6 InvStG) → 30 % partial exemption (Teilfreistellung). VERIFIZIERT
 6. Foreign-currency bonds: EUR-hedged
 7. Optional: savings-plan-eligible at the user's broker (P15)
+
+**Evaluation** (v1.3): every check ends as *erfüllt* (met), *verletzt* (violated) or *offen* (open). It is open if the value is missing at the cut-off date or is UNVERIFIZIERT: a second-hand value never lets a filter pass, but does not exclude the product for good either. A product is admissible only if no check is violated and none is open. An exception would let a single unchecked value block the evaluation of all candidates; a mere warning would let the product through. Clarifications:
+- On 1: not tradable on Xetra → open, because another German trading venue is permitted but is not recorded as a field
+- On 2: mechanical only where A5.5 names concrete indices (K1, K2 money market); for this, the index name is stored in the spelling of A5.5. Where A5.5 names only an index family (K2 bonds, S-Gold, S-Faktor), the check stays open until A5.5 names concrete indices. The alternative MSCI World + MSCI EM (A5.4, at the user's request) is not modelled
+- On 4: counted are the calendar years lying entirely between launch date and cut-off date; the current year never counts. Younger funds are not excluded but labelled "neu"
+- On 5: applies to K1 and S-Faktor. On 6: applies to K2 global bonds
+- On 7: user-specific (P15), not part of the instrument master data and not checked there
+- ENTSCHEIDUNG
 
 ### A5.3 Scoring on fixed scales (0–100)
 
@@ -586,6 +596,8 @@ All tax tests with `Decimal`; values TA1–TA10 were recalculated twice independ
 ---
 
 ## Changelog
+
+**v1.3 (20260925)** Instrument master data layer: A5.1 extended by time axes, precedence and verification status per value; A5.2 extended by the three-valued evaluation (erfüllt / verletzt / offen) and clarifications on filters 1, 2, 4, 5, 6 and 7. Not yet independently reviewed
 
 **v1.2 (20260925)** Self-review on filing: the annual hysteresis (A3.3 item 6) applied, according to its wording, to q_p as a whole and would have delayed the glide path reduction in the final years before the target by up to one year → now applies only to tolerance and capacity; q_Horizont monthly; new glide path rule for the last 36 months (A6.2) with test TA22; justification in A3.1 adjusted to the 10-percentage-point rounding; test table sorted
 
