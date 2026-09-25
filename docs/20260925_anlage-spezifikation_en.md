@@ -1,7 +1,7 @@
 ---
 title: Trading Analysis App – Investment Specification (Core Module Investment Adviser)
 date: 20260925
-status: v1.4; independently reviewed up to v1.2, findings incorporated; additions in v1.3 (A5.1, A5.2) and v1.4 (A5.1, A5.2, A5.3, A5.5) not yet independently reviewed
+status: v1.5; independently reviewed up to v1.2, findings incorporated; additions in v1.3 (A5.1, A5.2), v1.4 (A5.1, A5.2, A5.3, A5.5) and v1.5 (A1 P18, A2.5–A2.7, TA23–TA27) not yet independently reviewed
 owner: Henri
 basis: 20260925_trading-app-plan-v9_en.md, 20260925_rechenkern-spezifikation-v1.4.md, 20260925_strategie-katalog_en.md, 20260924_trading-app-qualitaetsstandards.md
 language: en
@@ -9,7 +9,7 @@ binding: this English text (since v1.4)
 supersedes: archive/20260925_anlage-spezifikation.md (German original of v1.3, no longer binding)
 ---
 
-# Investment Specification v1.4 – "Anlegen" (Invest) Core Module
+# Investment Specification v1.5 – "Anlegen" (Invest) Core Module
 
 **Binding text.** This English document is the binding investment specification. The German original (v1.3) is archived in `archive/20260925_anlage-spezifikation.md` and no longer binding. German tax and legal terms (Vorabpauschale, Teilfreistellung, Günstigerprüfung, NV-Bescheinigung, Abgeltungsteuer, Sparer-Pauschbetrag, Verlusttöpfe, Aktienfonds, all § references) are kept as proper nouns, because a German tax adviser has to review them.
 
@@ -74,6 +74,7 @@ Every output is stored with timestamp, input data, parameters and code version (
 | P15 | Preferences: distributing/accumulating, sustainability, gold yes/no, individual stocks yes/no, savings-plan-eligible at the broker | Selection | A4, A5 |
 | P16 | Do you receive BAföG? | Yes/No | Asset limit (A6.3) |
 | P17 | Are you covered by non-contributory family insurance? | Yes/No | Income limit (A6.3) |
+| P18 | Do you have a property loan? If yes: nominal Sollzinssatz, fixed or variable rate, date of full receipt of the loan, contractual Sondertilgung allowance | Yes/No, number, selection, date, number | A2.7 |
 
 ### A1.2 Loss question in euros
 
@@ -107,10 +108,55 @@ Rationale: ESMA guidelines para. 44, 46, 48 require practical loss scenarios wit
 | V3 | Liquid funds < target reserve R_Z = max(R_S; 3 × P3), or max(R_S; 6 × P3) with fluctuating income or dependants | 50 % of the monthly savings amount into the reserve, 50 % into the investment plan (distributed across the pots like their planned monthly savings amounts) |
 | V4 | Reserve reached | 100 % of the monthly savings amount into the investment plan |
 
-- **Rationale V1:** Repayment yields a **certain** return equal to the interest rate. From about 5 % nominal it is of the same order of magnitude as the **uncertain** equity return (base assumption 4 % real at the median, with around 2 % inflation about 6 % nominal, A9.2) and is superior to it on a risk-adjusted basis. Threshold ENTSCHEIDUNG
+- **Rationale V1:** Repayment yields a **certain** return equal to the interest rate. From about 5 % nominal it is of the same order of magnitude as the **uncertain** equity return (base assumption 4 % real at the median, with around 2 % inflation about 6 % nominal, A9.2) and is superior to it on a risk-adjusted basis. The threshold is derived in A2.6 from the after-tax expected return; it is recomputed, not hard-coded. Threshold ENTSCHEIDUNG
 - **Reserve** is held in an instant-access savings account at a bank with statutory deposit protection (100,000 € per depositor and bank; VERIFIZIERT, BMF). It does **not** count towards the equity share and not towards the depot
-- **BAföG loans** (interest-free) are not expensive debt (V1 does not apply)
+- **BAföG loans** (interest-free, § 18 Abs. 2 Satz 1 BAföG) are not expensive debt (V1 does not apply). The app gives no advice on BAföG repayment; the discount on early repayment under § 18 Abs. 10 Satz 2 BAföG is deliberately out of scope
 - **Evidence:** An emergency fund is associated with higher financial well-being (Vanguard survey 2024, correlational, not peer-reviewed); the Verbraucherzentrale (consumer advice centre) recommends 2–3 net monthly salaries. There is no peer-reviewed derivation of an optimal number of months. VERIFIZIERT (sources), thresholds ENTSCHEIDUNG
+
+### A2.5 Financing guide (explanatory, no computation)
+
+A panel on the preconditions step. Static text, no inputs, no state. It explains why the order of finances is what it is, because a rule the user does not understand is a rule they abandon in the first bad month (A12).
+
+The order — expensive debt, then reserve, then investing — follows from comparing a **certain** return against an **uncertain** one:
+
+1. **Repaying debt yields a certain return equal to the interest rate**, and that return is not taxed. No Abgeltungsteuer arises on money never paid to a lender.
+2. **Investing yields an uncertain return, and the gain is taxed** (A8). The base assumption is 4 % real at the median, about 6 % nominal (A9.2).
+3. **The reserve is not an investment.** It buys the ability to leave the depot untouched during an income shock, which is what protects a long horizon in practice.
+
+This is why V1 uses a threshold instead of "always repay first": below it the uncertain return is plausibly higher, above it the certain one wins on a risk-adjusted basis.
+
+### A2.6 Repayment versus investing (the hurdle rate)
+
+**Rule:** compare the loan's nominal Sollzinssatz against the **after-tax** expected return of the investment plan, not against the pre-tax return. A loan cheaper than the hurdle may be kept.
+
+| Step | Quantity | Value |
+|---|---|---|
+| Expected nominal return (A9.2) | r | 6.00 % |
+| Teilfreistellung for Aktienfonds (§ 20 Abs. 1 Satz 1 InvStG) | — | 30 % of the Erträge exempt |
+| Taxable share | — | 70 % |
+| Abgeltungsteuer incl. Solidaritätszuschlag, k = 0 (TA1) | s | 26.3750 % |
+| Effective burden on the gain | 0.70 × s | 18.4625 % |
+| **After-tax expected return** | r × (1 − 0.70 s) | **4.8923 %** |
+
+- The hurdle is **recomputed** from the tax engine (A8), never hard-coded: it moves with r, the Teilfreistellung, the Abgeltungsteuer rate, church tax k, and with Günstigerprüfung or an NV-Bescheinigung where those apply. The 5 % in V1 is the rounded presentation of this computation, not an independent constant.
+- Computed with `Decimal` under the A8 rounding rules; no floating point.
+- Displayed as a range, not a point value (principle 4): 6 % is a median, not a promise.
+- **Asymmetry, to be stated plainly in the UI:** the repayment return is certain, the investment return is a median. Equal numbers do not make equal decisions — a tie favours repayment.
+
+### A2.7 Property loans (only if P18 is set)
+
+Behind a toggle, off by default, so that onboarding does not grow for users without a property loan. The two rules below are statutory, not preferences.
+
+| Step | Condition | Recommendation |
+|---|---|---|
+| V5 | Immobiliar-Verbraucherdarlehen with a **fixed** Sollzinssatz, inside the fixed-rate period | Overpayment beyond the contractual Sondertilgung allowance is generally **not available**; A2.6 does not apply to this loan. The monthly amount follows V3/V4 |
+| V6 | Ten years since full receipt of the loan have passed or are approaching | Termination with six months' notice is possible without a Vorfälligkeitsentschädigung; show the date, recompute A2.6 from it |
+
+- **V5, § 500 Abs. 2 BGB:** a consumer may repay a Verbraucherdarlehen early at any time, in whole or in part (Satz 1). For an Immobiliar-Verbraucherdarlehen with a fixed Sollzinssatz, early repayment during the fixed-rate period requires a **berechtigtes Interesse** (Satz 2). The app therefore asks for the contractual Sondertilgung allowance instead of assuming one. VERIFIZIERT (statutory text)
+- **V6, § 489 Abs. 1 Nr. 2 BGB:** ten years after **full receipt**, termination in whole or in part with six months' notice. If the Sollzinssatz or the repayment schedule is renegotiated afterwards, the date of that agreement **replaces** the date of receipt and the ten years start again (Halbsatz 2). The anchor date is therefore stored as its own field (P18) and never derived from the origination date. This right cannot be excluded or made harder by agreement (§ 489 Abs. 4 Satz 1). VERIFIZIERT (statutory text)
+- **§ 489 Abs. 3 BGB:** the termination is deemed not given if the amount is not repaid within two weeks of it taking effect. The exit therefore requires the money to be ready, which is a planning input, not a footnote.
+- The computed § 489 date is shown as a **date on the timeline, not as a recommendation**. Whether terminating is worthwhile depends on the rate available at that time, which the app does not forecast.
+- **Out of scope:** refinancing optimiser, amortisation schedule, what-if simulator, Riester, Rürup, Bausparvertrag, KfW programmes.
 
 ---
 
@@ -577,6 +623,11 @@ Elements according to CFA Institute (2010), VERIFIZIERT: purpose and scope; resp
 | TA20 | ETF scales | TD −0.10 / −0.11 / +0.20 pp | After rounding to 0.05: −0.10 / −0.10 / +0.20 → 25 / 25 / 100 points |
 | TA21 | Product switch | Old fund TD −0.30, new TD 0.00, gain realisable tax-free within the Sparer-Pauschbetrag | Switch recommended; the same case with a taxable gain and 3 years of remaining horizon: no switch |
 | TA22 | Glide path shortly before the target | Pot with target date 20290930, q_p = 30 % on 20260930, depot 10,000 €, monthly savings amount 100 € | Step to 20 % due as soon as q_Horizont < 30 % (from 20261001); quarterly review 20261231 recommends a sale of around 1,000 € (savings amounts of 300 € are not sufficient); q_p = 0 implemented by 20280930 at the latest; the annual profile hysteresis does not delay any of these steps |
+| TA23 | Hurdle rate, base case | r = 6 %, Teilfreistellung 30 %, k = 0 | 4.8923 % (Decimal, A8 rounding); a loan at 4.5 % is below the hurdle, a loan at 5.5 % above it |
+| TA24 | Hurdle rate reacts to the tax parameters | as TA23, but k = 9 % and separately Teilfreistellung 0 % | Hurdle changes in both cases and is read from the tax engine, not from a constant: k = 9 % lowers it, Teilfreistellung 0 % lowers it further |
+| TA25 | Fixed-rate property loan inside the fixed-rate period | P18 set, fixed rate, Sondertilgung allowance 0 | V5: overpayment not available, A2.6 not applied; the monthly amount follows V3/V4 |
+| TA26 | Variable-rate property loan | P18 set, variable rate, Sollzinssatz 7 % | § 500 Abs. 2 Satz 1: overpayment available; above the hurdle → repayment before investing |
+| TA27 | § 489 date after renegotiation | Full receipt 20180301, rate renegotiated 20230601 | Earliest termination date computed from 20230601, not from 20180301; notice period six months |
 
 All tax tests with `Decimal`; values TA1–TA10 were recalculated twice independently.
 
@@ -598,8 +649,9 @@ All tax tests with `Decimal`; values TA1–TA10 were recalculated twice independ
 | Calibration of D_Stress from the JST world portfolio (placeholder 0.60) | Phase 1 |
 | Tranche order under § 23 (administrative view) | Before recommending S-Gold |
 | Review overlay variants OV-L2, OV-L4 (registered in strategy catalogue v1.2) | Phase 3 |
+| Whether a "berechtigtes Interesse" under § 500 Abs. 2 Satz 2 BGB covers a sale of the property, and what the app may say about it without giving legal advice (A2.7) | Before A2.7 |
 | Base rate 2027 | January 2027 |
-| Rate for a fund size whose as-of date has no ECB reference rate (weekend, TARGET holiday). The strategy catalogue G4 carries the last published rate forward; doing the same here would be consistent | Before implementing the currency conversion (A5.1) |
+| Rate for a fund size whose as-of date has no ECB reference rate (weekend, TARGET holiday): **decided in v1.5** — carry the last published rate forward, as in strategy catalogue G4. Open only as an implementation item | Before implementing the currency conversion (A5.1) |
 | Fund size of the fund or of the share class (A5.2 no. 3) | Before A5 |
 | Exact spelling of each A5.5 index for filter 2 and the A5.3 peer group: variant (net/gross), currency and hedging, names of the EGBI maturity bands | Before filter 2 is implemented for the v1.4 starting indices |
 | KID precedence (A5.1) against documents other than the factsheet (prospectus, annual report). v1.4 gives the KID precedence over all of them, so that the ranking stays a total order | Before implementing the precedence |
@@ -607,6 +659,8 @@ All tax tests with `Decimal`; values TA1–TA10 were recalculated twice independ
 ---
 
 ## Changelog
+
+**v1.5 (20260925)** Financing guide and small financing adviser as an extension of A2, not as a new module. New: A2.5 (why the order of finances is what it is, explanatory, no computation), A2.6 (the hurdle rate — repayment is compared against the **after-tax** expected return 4.8923 %, recomputed from the tax engine, which is where V1's 5 % threshold now comes from instead of being a bare number), A2.7 (property loans behind toggle P18, off by default). Two statutory rules: V5 § 500 Abs. 2 BGB (a fixed-rate Immobiliar-Verbraucherdarlehen generally cannot be overpaid during the fixed-rate period), V6 § 489 Abs. 1 Nr. 2 BGB (penalty-free termination ten years after full receipt with six months' notice; a renegotiation restarts the ten years, so the anchor date is stored as its own field). Both read from the statutory text. New profile field P18, tests TA23–TA27. BAföG is explicitly excluded as a product to advise on; the § 18 Abs. 10 Satz 2 BAföG discount is out of scope. Decided: a missing ECB rate carries the last published rate forward, as in strategy catalogue G4. New open point on "berechtigtes Interesse". Nothing of this is implemented yet. Not yet independently reviewed
 
 **v1.4 (20260925)** The English text becomes binding; the German original of v1.3 moves to `archive/20260925_anlage-spezifikation.md` and is no longer binding. German tax and legal terms (Vorabpauschale, Teilfreistellung, Günstigerprüfung, NV-Bescheinigung, Abgeltungsteuer, Sparer-Pauschbetrag, Verlusttöpfe, Aktienfonds, all § references) stay as proper nouns. Strings shown to the user are English. Vocabulary matches the code: S-Factor; hard-filter verdicts fulfilled / violated / open; eligible; label "new"; per-value status VERIFIED / UNVERIFIED. Decisions: starting indices for K2 EUR government bonds, K2 global bonds, S-Gold and S-Factor (A5.5, A5.2 on 2); history score in full calendar years (A5.3); fund size converted at the ECB reference rate of the value's own as-of date (A5.1, A5.2 on 3); KID before factsheet (A5.1). Implementation status: the currency conversion, the KID precedence and filter 2 for the new starting indices are not yet in the code. Editorial: TA7 states which value belongs to which case; "open entitlement" used throughout. Not yet independently reviewed
 
