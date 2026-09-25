@@ -123,8 +123,56 @@ Die Prüfung ist als Skript wiederholbar und soll vor jeder neuen Charge und vor
 
 Ein Ergebnis gilt nur für die exakt geprüfte Version. Version geändert = Protokoll neu.
 
+## Vollzug Charge 1 — 2026-09-25
+
+Freigabe erteilt. Umgesetzt und gemessen, nicht angenommen.
+
+### Was installiert wurde
+
+`pyproject.toml` deklariert exakt die 10 freigegebenen Pakete. `uv.lock` löst daraus **44 Pakete** auf: 10 direkte, 33 transitive, plus das Projekt selbst.
+
+Die 33 transitiven Pakete standen in keiner Freigabe — das ist der übliche blinde Fleck eines Prüfprotokolls. Deshalb nachgeholt:
+
+**OSV-Abfrage über alle 43 Fremdpakete: null Befunde.**
+
+Die Kette, die am meisten mitbringt, ist `yfinance` (13 direkte Abhängigkeiten, darunter `curl-cffi`, `protobuf`, `peewee`, `lxml`). Das bestätigt die Einstufung als Fallback: Ein Paket, das ein Viertel des Abhängigkeitsbaums stellt, gehört nicht auf den kritischen Pfad.
+
+### Installationsregeln in Konfiguration übersetzt
+
+| Regel | Umsetzung | Nachweis |
+|---|---|---|
+| Kein `sudo pip` | Venv unter `~/claude-local/trading-app/.venv` | `sys.prefix` bestätigt |
+| Lockfile | `uv.lock`, 44 Pakete mit Hashes | eingecheckt |
+| Kein fremder Setup-Code | `no-build = true` | `uv sync` lief in 2,4 s ohne Build |
+| Kein Env in iCloud/Git | `UV_PROJECT_ENVIRONMENT` | `.venv/` in `.gitignore` |
+
+Zu `no-build = true`: Der erste `uv sync` **scheiterte** daran, dass das Projekt sich selbst bauen wollte. Statt die Regel aufzuweichen, ist `package = false` gesetzt — `src/` kommt über `pytest pythonpath` herein. Die Regel steht, der Bau entfällt.
+
+### Prüfebene 0: das Environment prüft sich selbst
+
+`tests/test_environment.py`, 15 Tests, alle grün:
+
+- 9 Versions-Pins gegen die tatsächlich importierte Version
+- APScheduler bleibt unter 4.x
+- `polars` und `pandas-market-calendars` sind nicht installiert
+- `pyproject` deckt sich mit `uv.lock` **und** mit dem Environment
+- jede direkte Abhängigkeit hat eine Zeile in dieser Datei
+
+**Die Tests wurden gegen eine echte Sabotage geprüft.** Erster Versuch: `duckdb`-Pin auf 1.5.4 verfälscht — die Suite blieb grün. Der Test las die installierte Version und verglich sie gegen eine Konstante im Test selbst, nicht gegen `pyproject.toml`. Ein Test, der eine Drift nicht bemerkt, ist schlimmer als kein Test: Er erzeugt Vertrauen ohne Deckung.
+
+Nachgebessert um zwei Tests, die `pyproject` gegen Lockfile und Environment stellen. Sabotage wiederholt: **2 Tests rot, mit brauchbarer Meldung.** Zurückgesetzt: wieder grün.
+
+### Abweichungen von der Planung
+
+| Geplant | Tatsächlich | Grund |
+|---|---|---|
+| Python ≥3.12 | 3.13.15 | uv lädt eigenes CPython, unabhängig vom System-3.9.6 |
+| Hatchling-Build | kein Build | kollidierte mit `no-build`; `package = false` ist strenger |
+| 10 Pakete geprüft | 43 geprüft | transitive Abhängigkeiten nachgezogen |
+
 ## Änderungshistorie
 
 | Datum | Änderung |
 |---|---|
 | 2026-09-25 | Charge 1 geprüft (10 Pakete), Freigabe durch Henri ausstehend |
+| 2026-09-25 | Charge 1 freigegeben und installiert; 43 Pakete OSV-geprüft; Prüfebene 0 (15 Tests) gegen Sabotage verifiziert |

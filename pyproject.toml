@@ -1,0 +1,41 @@
+[project]
+name = "trading-app"
+version = "0.0.0"
+description = "Forschungsorientierte Trading-Anwendung — Phase 1: bitemporale Datenschicht"
+requires-python = ">=3.12,<3.14"
+
+# Jede Zeile hier ist in DEPENDENCIES.md geprüft und freigegeben.
+# Neue Abhängigkeit ohne Protokolleintrag = kein Commit.
+dependencies = [
+    "duckdb==1.5.5",
+    "pandas==3.0.6",
+    "numpy==2.5.3",
+    "pyarrow==25.0.1",
+    "pydantic==2.13.5",
+    "exchange-calendars==4.13.2",
+    # APScheduler 4.x ist Alpha und laut Research-Report gesperrt.
+    "apscheduler>=3.11.3,<4",
+    # yfinance: nur gecachter Fallback (Research-Report Abschnitt 2).
+    # Name kopieren, nie tippen — "yfinnace" war Malware.
+    "yfinance==1.7.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "hypothesis==6.168.1",
+]
+
+[tool.uv]
+# Reine Wheel-Installation: beim Installieren läuft kein fremder Setup-Code.
+no-build = true
+# Das eigene Projekt wird NICHT gebaut/installiert — kein Build-Schritt im Env.
+# src/ kommt über pytest pythonpath herein (siehe unten).
+package = false
+# Das Environment liegt außerhalb von iCloud und Git (ADR-0003).
+environments = ["sys_platform == 'darwin'"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers --strict-config"
