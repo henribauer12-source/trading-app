@@ -209,3 +209,47 @@ def test_registered_alias_makes_the_derived_series_match() -> None:
         )
     )
     assert reg.match(BuildingBlock.K2_MONEY_MARKET, "€STR Compounded").verdict is MatchVerdict.MATCH
+
+
+# --- aliases pulled from real documents (v1.7) -----------------------------
+
+
+def test_default_registry_loads_the_pulled_aliases() -> None:
+    """data/index_aliases.json is real data read from issuer KIDs."""
+    from trading_app.index_identity import default_registry
+
+    reg = default_registry()
+    assert reg.aliases(BuildingBlock.K1)
+
+
+def test_real_kid_spellings_match_after_loading() -> None:
+    """The spellings the documents actually use must not be rejected."""
+    from trading_app.index_identity import default_registry
+
+    reg = default_registry()
+    for name in (
+        "MSCI All Country World Index",
+        "MSCI All Countries World Index",  # same iShares KID, one page apart
+        "FTSE All-World Index",
+    ):
+        assert reg.match(BuildingBlock.K1, name).verdict is MatchVerdict.MATCH, name
+
+
+def test_pulled_aliases_carry_provenance() -> None:
+    from trading_app.index_identity import default_registry
+
+    for alias in default_registry().aliases(BuildingBlock.K1):
+        assert alias.as_of is not None
+        assert alias.source_type is not None
+
+
+def test_alias_file_rejects_an_entry_without_provenance(tmp_path) -> None:
+    """A dated document class is what makes an alias a fact."""
+    import json as _json
+
+    from trading_app.index_identity import load_alias_file
+
+    bad = tmp_path / "bad.json"
+    bad.write_text(_json.dumps({"aliases": [{"block": "K1", "raw": "MSCI ACWI"}]}))
+    with pytest.raises(ValueError, match="source_type"):
+        load_alias_file(bad)

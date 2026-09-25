@@ -37,10 +37,13 @@ belonging to a *different* building block is a ``MISMATCH``.
 
 from __future__ import annotations
 
+import datetime as dt
+import json
 import re
 import unicodedata
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 
 from trading_app.hard_filters import BuildingBlock
 from trading_app.instruments import SourceType
@@ -223,6 +226,41 @@ _KNOWN_NOT_ELIGIBLE: dict[str, str] = {
         "sector-neutral variant (705169)"
     ),
 }
+
+
+def load_alias_file(path: str | Path) -> tuple[Alias, ...]:
+    """Read aliases pulled from documents (``data/index_aliases.json``).
+
+    Every entry must carry its document class and date; an entry without
+    them is rejected rather than defaulted, because provenance is what
+    separates a registered alias from a guess.
+    """
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    out: list[Alias] = []
+    for i, entry in enumerate(raw.get("aliases", [])):
+        missing = [k for k in ("block", "raw", "source_type", "as_of") if not entry.get(k)]
+        if missing:
+            raise ValueError(f"alias #{i} in {path} is missing {', '.join(missing)}")
+        out.append(
+            Alias(
+                block=BuildingBlock[entry["block"]],
+                raw=entry["raw"],
+                source_type=SourceType[entry["source_type"]],
+                as_of=dt.date.fromisoformat(entry["as_of"]),
+            )
+        )
+    return tuple(out)
+
+
+def default_registry(path: str | Path | None = None) -> IndexRegistry:
+    """A registry loaded with the aliases pulled so far."""
+    if path is None:
+        path = Path(__file__).resolve().parents[2] / "data" / "index_aliases.json"
+    reg = IndexRegistry()
+    if Path(path).exists():
+        for alias in load_alias_file(path):
+            reg.register_alias(alias)
+    return reg
 
 
 class IndexRegistry:

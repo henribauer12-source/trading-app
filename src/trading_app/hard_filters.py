@@ -255,9 +255,14 @@ def _check_index(
     block is a rejection. A gross series is also a rejection, because A5.5
     requires the net variant and the two are different series.
     """
-    from trading_app.index_identity import IndexRegistry, MatchVerdict, ReturnVariant
+    from trading_app.index_identity import (
+        IndexRegistry,
+        MatchVerdict,
+        ReturnVariant,
+        default_registry,
+    )
 
-    reg = registry if registry is not None else IndexRegistry()
+    reg = registry if registry is not None else default_registry()
     value, open_check = _verified_value(view, isin, 2, "Index", "index_name")
     if open_check is not None:
         return open_check
