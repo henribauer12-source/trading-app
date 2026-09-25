@@ -103,7 +103,7 @@ class FilterResult:
 
     isin: str
     building_block: BuildingBlock
-    as_of: dt.datetime
+    cut_off: dt.datetime
     checks: tuple[Check, ...]
     new: bool
 
@@ -121,7 +121,7 @@ class FilterResult:
         return self.verdict is Verdict.FULFILLED
 
 
-def full_calendar_years(inception_date: dt.date, cutoff: dt.date) -> int:
+def full_calendar_years(inception_date: dt.date, cut_off: dt.date) -> int:
     """Calendar years lying entirely between inception and cut-off (A5.2 no. 4, v1.3).
 
     The current year never counts, the inception year only for an inception
@@ -131,7 +131,7 @@ def full_calendar_years(inception_date: dt.date, cutoff: dt.date) -> int:
     first = inception_date.year + (
         0 if (inception_date.month, inception_date.day) == (1, 1) else 1
     )
-    return max(0, cutoff.year - first)
+    return max(0, cut_off.year - first)
 
 
 def check_hard_filters(view: InstrumentView, isin: str, block: BuildingBlock) -> FilterResult:
@@ -206,7 +206,7 @@ def check_hard_filters(view: InstrumentView, isin: str, block: BuildingBlock) ->
     if block in _FOREIGN_CURRENCY_BONDS:
         checks.append(_check(view, isin, 6, "EUR-hedged", "currency_hedged", _yes))
 
-    return FilterResult(isin, block, view.as_of, tuple(checks), new)
+    return FilterResult(isin, block, view.cut_off, tuple(checks), new)
 
 
 def _yes(value: Any) -> bool:
@@ -260,7 +260,7 @@ def _check_history(view: InstrumentView, isin: str) -> tuple[Check, bool]:
     value, open_check = _verified_value(view, isin, 4, "History", "inception_date")
     if open_check is not None:
         return open_check, False
-    years = full_calendar_years(value.value, view.as_of.date())
+    years = full_calendar_years(value.value, view.cut_off.date())
     new = years < MIN_CALENDAR_YEARS
     reason = f"{years} full calendar years since inception on {value.value}"
     if new:

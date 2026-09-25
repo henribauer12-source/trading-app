@@ -365,4 +365,4 @@ class TestCutoff:
         assert verdict_of(later, 3) is Verdict.VIOLATED
 
     def test_result_carries_the_cutoff(self) -> None:
-        assert evaluate(BuildingBlock.K1, passing_values(BuildingBlock.K1)).as_of == CUTOFF
+        assert evaluate(BuildingBlock.K1, passing_values(BuildingBlock.K1)).cut_off == CUTOFF

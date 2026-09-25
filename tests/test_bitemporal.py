@@ -217,7 +217,7 @@ class TestPointInTime:
         assert len(after) == 1 and after.iloc[0]["close"] == 101.5
 
     def test_cutoff_is_inclusive(self, store) -> None:
-        """available_at == as_of: the bar is known."""
+        """available_at == cut_off: the bar is known."""
         store.append([make_bar(5, available_at=ts(2026, 1, 5))])
         assert len(store.view(ts(2026, 1, 5)).bars("AAPL.US")) == 1
 
@@ -378,7 +378,7 @@ class TestLeakage:
         """Strategy code sees only the view — no public way back."""
         view = store.view(ts(2026, 1, 10))
         public = [n for n in dir(view) if not n.startswith("_")]
-        assert set(public) == {"as_of", "bars", "last_bar", "symbols"}
+        assert set(public) == {"cut_off", "bars", "last_bar", "symbols"}
 
     @settings(max_examples=50, deadline=None)
     @given(

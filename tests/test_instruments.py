@@ -564,7 +564,7 @@ class TestLeakage:
     def test_no_access_to_the_raw_table(self, store) -> None:
         view = store.view(ts(2026, 9, 1))
         public = {n for n in dir(view) if not n.startswith("_")}
-        assert public == {"as_of", "field", "series", "isins"}
+        assert public == {"cut_off", "field", "series", "isins"}
 
     @settings(max_examples=60, deadline=None)
     @given(

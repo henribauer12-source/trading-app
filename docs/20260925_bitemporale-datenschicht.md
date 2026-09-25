@@ -64,7 +64,7 @@ frame = sicht.bars("AAPL.US")
 ist damit nicht eine Frage der Disziplin, sondern strukturell ausgeschlossen:
 Die API bietet den Fehler gar nicht erst an.
 
-Der Stichtag zählt einschließlich (`available_at <= as_of`) — eine Bar, die
+Der Stichtag zählt einschließlich (`available_at <= cut_off`) — eine Bar, die
 exakt zum Stichtag verfügbar wurde, ist sichtbar.
 
 ### 3. Zeitstempel ohne Zeitzone werden abgewiesen

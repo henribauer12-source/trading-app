@@ -169,7 +169,7 @@ later `available_at`. A value of 100.00 recorded on 5 January and corrected to 1
 still reads **100.00** when queried as of 6 January — which is exactly what the strategy saw at
 the time.
 
-**No way to fetch "all data".** The only path to bars runs through `store.view(as_of)`. Look-ahead
+**No way to fetch "all data".** The only path to bars runs through `store.view(cut_off)`. Look-ahead
 bias is structurally impossible rather than a matter of discipline. Naive timestamps are rejected
 outright.
 

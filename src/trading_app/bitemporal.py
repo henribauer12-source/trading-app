@@ -8,7 +8,7 @@ The core of phase 1. Two rules govern the whole design:
    just what is true today.
 
 2. **`PointInTimeView` is the only interface for strategy code.**
-   It returns exclusively rows with `available_at <= as_of`. Without this
+   It returns exclusively rows with `available_at <= cut_off`. Without this
    barrier, knowledge of the future sooner or later creeps into a signal, and
    the backtest becomes worthless without anything crashing.
 
@@ -22,6 +22,14 @@ Three timestamps per row (quality standards section 3.2):
 
 `event_time` and `available_at` diverge as soon as data are published late or
 corrected afterwards. Exactly this gap is the reason for bitemporal storage.
+
+Naming convention for the whole data layer:
+
+- ``as_of`` is always a **document date** (event time): the date of the
+  document a value was read from. A property of the data.
+- ``cut_off`` is always a **query horizon**: the world as the app knew it at
+  time T, compared with ``available_at`` (or ``retrieved_at`` in
+  ``instruments``). A property of the question.
 
 Prices are kept twice — `close` as traded, `adjusted_close` adjusted for
 splits and dividends. Why that is no luxury is explained in
@@ -57,7 +65,7 @@ def _require_aware(name: str, value: dt.datetime) -> dt.datetime:
     """Reject timezone-naive timestamps and normalise everything to UTC.
 
     A naive timestamp is the quietest source of error in the whole layer: the
-    comparison `available_at <= as_of` then runs up to two hours wrong,
+    comparison `available_at <= cut_off` then runs up to two hours wrong,
     depending on daylight saving time, but raises no message. Two hours are
     enough for look-ahead across a trading day.
     """
@@ -199,7 +207,7 @@ CREATE TABLE IF NOT EXISTS bars (
     CHECK (volume >= 0)
 );
 
--- The filter available_at <= as_of runs on every single access.
+-- The filter available_at <= cut_off runs on every single access.
 CREATE INDEX IF NOT EXISTS bars_pit_idx
     ON bars (symbol, bar_size, available_at, event_time);
 """
@@ -223,28 +231,28 @@ _VIEW_COLUMNS = (
 
 
 class PointInTimeView:
-    """View of the data as they were known at time ``as_of``.
+    """View of the data as they were known at time ``cut_off``.
 
     The only object strategy code gets to see. There is no way from here to
     the raw table — not even by accident.
 
     If a bar has several versions (first report plus corrections), the view
-    returns the **latest known** version with ``available_at <= as_of``. A
-    correction published only after ``as_of`` stays invisible. That is
+    returns the **latest known** version with ``available_at <= cut_off``. A
+    correction published only after ``cut_off`` stays invisible. That is
     exactly how things stood back then.
     """
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection, as_of: dt.datetime) -> None:
+    def __init__(self, conn: duckdb.DuckDBPyConnection, cut_off: dt.datetime) -> None:
         self._conn = conn
-        self._as_of = _require_aware("as_of", as_of)
+        self._cut_off = _require_aware("cut_off", cut_off)
 
     @property
-    def as_of(self) -> dt.datetime:
+    def cut_off(self) -> dt.datetime:
         """The cut-off date of this view (UTC)."""
-        return self._as_of
+        return self._cut_off
 
     def __repr__(self) -> str:
-        return f"PointInTimeView(as_of={self._as_of.isoformat()})"
+        return f"PointInTimeView(cut_off={self._cut_off.isoformat()})"
 
     def bars(
         self,
@@ -267,7 +275,7 @@ class PointInTimeView:
             before the IPO there simply were no prices.
         """
         conditions = ["symbol = ?", "bar_size = ?", "available_at <= ?"]
-        params: list[Any] = [symbol, bar_size, self._as_of]
+        params: list[Any] = [symbol, bar_size, self._cut_off]
 
         if start is not None:
             conditions.append("event_time >= ?")
@@ -302,7 +310,7 @@ class PointInTimeView:
     def symbols(self, bar_size: str | None = None) -> list[str]:
         """Instruments for which data were available at the cut-off date."""
         sql = "SELECT DISTINCT symbol FROM bars WHERE available_at <= ?"
-        params: list[Any] = [self._as_of]
+        params: list[Any] = [self._cut_off]
         if bar_size is not None:
             sql += " AND bar_size = ?"
             params.append(bar_size)
@@ -325,7 +333,7 @@ class BitemporalStore:
     Example:
         >>> store = BitemporalStore(":memory:")
         >>> store.append(bars)
-        >>> view = store.view(as_of=datetime(2026, 3, 1, tzinfo=timezone.utc))
+        >>> view = store.view(cut_off=datetime(2026, 3, 1, tzinfo=timezone.utc))
         >>> frame = view.bars("AAPL.US")
     """
 
@@ -427,9 +435,9 @@ class BitemporalStore:
         )
         return len(rows)
 
-    def view(self, as_of: dt.datetime) -> PointInTimeView:
-        """Creates the view of the state of knowledge at time ``as_of``."""
-        return PointInTimeView(self._conn, as_of)
+    def view(self, cut_off: dt.datetime) -> PointInTimeView:
+        """Creates the view of the state of knowledge at time ``cut_off``."""
+        return PointInTimeView(self._conn, cut_off)
 
     def total_rows(self) -> int:
         """All rows ever written, corrections included.

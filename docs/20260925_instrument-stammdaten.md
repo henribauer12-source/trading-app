@@ -40,7 +40,8 @@ When several values are known, the latest `as_of` applies; for equal `as_of`, th
 A retrieval before the as-of date is rejected, both in Python and as a CHECK in the table
 (compared in UTC). The KID precedence of spec v1.4 is not implemented yet (decision 4 below).
 
-`as_of` also names the cut-off date of a query. See the known defect at the end.
+`as_of` is only ever the document date. The cut-off date of a query is `cut_off`
+(`InstrumentView.cut_off`, `InstrumentStore.view(cut_off=…)`); see the fixed defect at the end.
 
 ## Unverified values
 
@@ -128,7 +129,7 @@ These four items were open here until 20260925. They are now decided and written
    **Specified, not yet implemented; this is a behaviour change.** `FIELDS["fund_size"]` still has
    unit `EUR` and `FieldValue` rejects any other unit. The ECB rate has no ISIN, so it does not fit
    `instrument_fields` as it stands; where it is stored is a design question for the
-   implementation. The known defect below must be fixed first.
+   implementation. The `as_of` naming defect below had to be fixed first; it is fixed.
 4. **TER conflict: the KID wins over the factsheet** (A5.1). Reason: the KID is mandated by the
    PRIIPs Regulation, with a prescribed calculation method and issuer liability; the factsheet is
    marketing material. When the two disagree, both values are stored, the KID value as `VERIFIED`
@@ -159,9 +160,9 @@ These four items were open here until 20260925. They are now decided and written
 8. **TA16 against A5.2 no. 4:** TA16 still expects the hard filters to exclude funds that are "too
    young", but A5.2 no. 4 (v1.3) and the code label them `new` instead of excluding them.
 
-## Known defect: `as_of` names two different dates
+## Fixed defect: `as_of` named two different dates
 
-**Not fixed. Recorded 20260925; no code was changed.**
+**Recorded and fixed 20260925** by a pure rename, no behaviour change.
 
 The translation mapped two distinct German concepts to the one English name `as_of`:
 
@@ -174,21 +175,22 @@ The translation mapped two distinct German concepts to the one English name `as_
   `PointInTimeView.as_of` and `BitemporalStore.view(as_of=…)` in `bitemporal.py`.
 
 In a point-in-time store these are different axes. The document date orders the known values
-(precedence); the cut-off date filters on `retrieved_at`. At the moment only a comment keeps them
+(precedence); the cut-off date filters on `retrieved_at`. Before the fix only a comment kept them
 apart (`instruments.py` module docstring: "Careful: the column `as_of` is the document date.
 `InstrumentView.as_of` is the view's cut-off date").
 
-Why it matters now: the currency conversion (decision 3) must use the rate of the value's
+Why it mattered: the currency conversion (decision 3) must use the rate of the value's
 document date. With one name for both dates, a rate looked up at `value.as_of` and a rate looked up
-at `view.as_of` look equally plausible. The second would re-price every stored fund size with each
-new cut-off, which is exactly what the rule forbids.
+at `view.as_of` looked equally plausible. The second would re-price every stored fund size with each
+new cut-off, which is exactly what the rule forbids. It now reads `view.cut_off`.
 
-**Proposed fix:** keep `as_of` for the document's own date; rename the query cut-off to `cut_off`.
+**Fix (applied):** keep `as_of` for the document's own date; rename the query cut-off to `cut_off`.
+The convention is stated in the `bitemporal.py` module docstring.
 
 - `InstrumentView.as_of` → `InstrumentView.cut_off`; `InstrumentStore.view(as_of=…)` →
   `view(cut_off=…)`; `FilterResult.as_of` → `FilterResult.cut_off`.
 - For one vocabulary across the data layer, also `PointInTimeView.as_of` →
   `PointInTimeView.cut_off`, `BitemporalStore.view(as_of=…)` → `view(cut_off=…)`, and the
   parameter `full_calendar_years(…, cutoff)` → `cut_off`.
-- A pure rename with no behaviour change. The cut-off mutants (M2a, M2b) must still go red
-  afterwards. Do it before the currency conversion is implemented.
+- A pure rename with no behaviour change; database column and schema unchanged. The cut-off
+  mutants still go red afterwards: M2a 5, M2b 4 red.

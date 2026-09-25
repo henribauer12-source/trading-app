@@ -44,8 +44,8 @@ certain. If several values are known for a field, the one with the latest
 ``as_of`` applies; for equal ``as_of``, the one retrieved last. An older
 document that is recorded later therefore does not displace a newer one.
 
-Careful: the column ``as_of`` is the document date. ``InstrumentView.as_of``
-is the view's cut-off date and is compared with ``retrieved_at``.
+Naming (convention in ``bitemporal``): ``as_of`` is always the document date;
+the query horizon is ``InstrumentView.cut_off``, compared with ``retrieved_at``.
 
 Verification status per value: ``VERIFIED`` only if the value was read in the
 primary document. Second-hand values (``source_type`` ``secondary``) may be
@@ -473,26 +473,25 @@ _VIEW_COLUMNS = (
 
 
 class InstrumentView:
-    """Master data as it was known at time ``as_of``.
+    """Master data as it was known at time ``cut_off``.
 
     The only object product selection gets to see. It returns only values
-    with ``retrieved_at`` at or before this view's ``as_of`` (the cut-off
-    date, not the document date column of the same name); a factsheet
+    with ``retrieved_at`` at or before this view's ``cut_off``; a factsheet
     retrieved only after the cut-off date does not exist for this view. There
     is no method that returns "everything".
     """
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection, as_of: dt.datetime) -> None:
+    def __init__(self, conn: duckdb.DuckDBPyConnection, cut_off: dt.datetime) -> None:
         self._conn = conn
-        self._as_of = _timestamp("as_of", as_of)
+        self._cut_off = _timestamp("cut_off", cut_off)
 
     @property
-    def as_of(self) -> dt.datetime:
+    def cut_off(self) -> dt.datetime:
         """The cut-off date of this view (UTC)."""
-        return self._as_of
+        return self._cut_off
 
     def __repr__(self) -> str:
-        return f"InstrumentView(as_of={self._as_of.isoformat()})"
+        return f"InstrumentView(cut_off={self._cut_off.isoformat()})"
 
     def field(self, isin: str, field: str) -> FieldValue | None:
         """The value of a field in force at the cut-off date, or None.
@@ -515,7 +514,7 @@ class InstrumentView:
         """Instruments for which at least one value was known at the cut-off date."""
         rows = self._conn.execute(
             "SELECT DISTINCT isin FROM instrument_fields WHERE retrieved_at <= ? ORDER BY isin",
-            [self._as_of],
+            [self._cut_off],
         ).fetchall()
         return [row[0] for row in rows]
 
@@ -535,7 +534,7 @@ class InstrumentView:
             WHERE _rank = 1
             ORDER BY period
         """
-        rows = self._conn.execute(sql, [isin, field, self._as_of]).fetchall()
+        rows = self._conn.execute(sql, [isin, field, self._cut_off]).fetchall()
         # Back through FieldValue: the same check as on writing, also against
         # rows that someone wrote via SQL, bypassing the API.
         return [FieldValue(*row) for row in rows]
@@ -567,7 +566,7 @@ class InstrumentStore:
     Example:
         >>> store = InstrumentStore(":memory:")
         >>> store.append(load_source_file("instruments.json"))
-        >>> view = store.view(as_of=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        >>> view = store.view(cut_off=datetime(2026, 9, 1, tzinfo=timezone.utc))
         >>> view.field("XX0000000002", "ter")
     """
 
@@ -662,9 +661,9 @@ class InstrumentStore:
         self._conn.commit()
         return written
 
-    def view(self, as_of: dt.datetime) -> InstrumentView:
-        """Creates the view of the state of knowledge at time ``as_of``."""
-        return InstrumentView(self._conn, as_of)
+    def view(self, cut_off: dt.datetime) -> InstrumentView:
+        """Creates the view of the state of knowledge at time ``cut_off``."""
+        return InstrumentView(self._conn, cut_off)
 
     def total_rows(self) -> int:
         """All rows ever written. For operations and diagnostics only."""
