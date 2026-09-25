@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 400" role="img" aria-label="Trading-Analyse-App — evidence-based signals, local-first, data budget 0 €">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 400" role="img" aria-label="Investing/Trading analysis App — evidence-based signals, local-first, data budget 0 €">
   <!-- Identity: calm, evidence-based, no hype. Ledger-paper grid, one muted blue line
        drawing itself over a dashed benchmark (the ETF), and "no signal" shown as a
        normal state. No candles, no rockets, no green/red drama. -->
@@ -16,7 +16,7 @@
   <rect width="1500" height="400" fill="url(#ledger)"/>
 
   <!-- ===== Wordmark ===== -->
-  <text x="90" y="168" font-family="Newsreader, Georgia, 'Times New Roman', serif" font-size="56" font-weight="500" letter-spacing="-0.5" fill="#23272E">Trading-Analyse-App</text>
+  <text x="90" y="166" font-family="Newsreader, Georgia, 'Times New Roman', serif" font-size="40" font-weight="500" letter-spacing="-0.5" fill="#23272E">Investing/Trading analysis App</text>
   <text x="92" y="212" font-family="Newsreader, Georgia, 'Times New Roman', serif" font-size="24" fill="#4B515A">Evidence before excitement.</text>
   <text x="92" y="250" font-family="ui-monospace, 'JetBrains Mono', Menlo, monospace" font-size="15" fill="#7A7E86">local-first &#183; data budget 0 &#8364; &#183; not investment advice</text>
 

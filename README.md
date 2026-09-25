@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="img/banner.svg" alt="Trading-Analyse-App — evidence-based signals, local-first, data budget 0 €" width="100%">
+  <img src="img/banner.svg" alt="Investing/Trading analysis App — evidence-based signals, local-first, data budget 0 €" width="100%">
 </p>
 
-# Trading-Analyse-App
+# Investing/Trading analysis App
 
 A private, local analysis tool built around one question: **what should I do with my money this
 month, and why?**
