@@ -40,9 +40,20 @@ Time axes (quality standards 3.2; investment spec A5.1, v1.3):
 The point-in-time key is ``retrieved_at``, not ``as_of``. The actual
 publication lies somewhere in between and is rarely stated in the document;
 the retrieval is the earliest moment at which the app knew the value for
-certain. If several values are known for a field, the one with the latest
-``as_of`` applies; for equal ``as_of``, the one retrieved last. An older
-document that is recorded later therefore does not displace a newer one.
+certain. If several values are known for a field, a value from a KID applies
+before a value from any other document, whatever the as-of dates (A5.1,
+v1.4). Among the rest, the one with the latest ``as_of`` applies; for equal
+``as_of``, the one retrieved last. An older document that is recorded later
+therefore does not displace a newer one of the same rank. Precedence ranks
+only what is known at the cut-off date: a KID retrieved afterwards does not
+exist for the view. When the KID and the factsheet disagree, both rows stay;
+the losing value remains visible in ``history``.
+
+Fund size is stored as published, in the currency of the document (A5.1,
+v1.4); it must name that currency. Converting into EUR is a matter for the
+reader, at the ECB reference rate of the value's own as-of date
+(``InstrumentView.rate_for``). The rates live in the same append-only store,
+with the same provenance and the same point-in-time key, as ``FxRate``.
 
 Naming (convention in ``bitemporal``): ``as_of`` is always the document date;
 the query horizon is ``InstrumentView.cut_off``, compared with ``retrieved_at``.
@@ -71,12 +82,16 @@ no real data)::
         "values": {
             "ter": 0.1234,
             "ucits": true,
+            "fund_size": {"value": 123456789, "unit": "USD"},
             "tracking_difference": {"2024": -0.0123, "2025": 0.0456}
         }
     }]}
 
 Numbers are read as ``Decimal``, never as ``float``. The unit of every field
-is in ``FIELDS``: ``ter`` in percent per year, so ``0.5`` for 0.50 %.
+is in ``FIELDS``: ``ter`` in percent per year, so ``0.5`` for 0.50 %. A field
+stored as published in one of several units (the fund size, in its currency)
+names it as ``{"value": …, "unit": …}``; any other field may do the same as a
+cross-check.
 
 Limit as with ``BitemporalStore``: the append-only promise holds for this API,
 not for someone who writes into the file via SQL on their own connection.
@@ -101,11 +116,13 @@ import pandas as pd
 from trading_app.bitemporal import BarValidationError, _require_aware
 
 __all__ = [
+    "CURRENCIES",
     "FIELDS",
     "Distribution",
     "FieldType",
     "FieldValue",
     "FieldValueValidationError",
+    "FxRate",
     "InstrumentStore",
     "InstrumentView",
     "Replication",
@@ -249,12 +266,19 @@ class FieldType:
         check: Check and conversion function.
         unit: Unit in which the value is stored; empty for characteristics.
         per_year: Annual value with the calendar year as ``period``.
+        units: Instead of ``unit``: the value is stored as published in one
+            of these and must name it. Nothing is defaulted.
     """
 
     check: Callable[[object], Any]
     unit: str = ""
     per_year: bool = False
+    units: tuple[str, ...] = ()
 
+
+# Currencies a fund size may be published in (A5.1, v1.4). The thresholds
+# and the reporting are in EUR; USD is the usual currency of the document.
+CURRENCIES = ("EUR", "USD")
 
 # The fields that A5.2 and A5.3 need. A new field is one line here.
 FIELDS: dict[str, FieldType] = {
@@ -262,7 +286,8 @@ FIELDS: dict[str, FieldType] = {
     # As published, unrounded. The materiality threshold of 0.05 pp is a
     # matter for scoring A5.3, not for storage.
     "tracking_difference": FieldType(_decimal, "percentage points p. a.", per_year=True),
-    "fund_size": FieldType(_decimal, "EUR"),
+    # In the currency of the document; converted only when read (A5.2 no. 3).
+    "fund_size": FieldType(_decimal, units=CURRENCIES),
     "replication_method": FieldType(_choice(Replication)),
     "domicile": FieldType(_country),
     "inception_date": FieldType(_date),
@@ -327,6 +352,26 @@ def _timestamp(name: str, value: dt.datetime) -> dt.datetime:
         raise FieldValueValidationError(str(error)) from None
 
 
+def _check_source_url(source_url: object) -> None:
+    url = urllib.parse.urlsplit(source_url) if isinstance(source_url, str) else None
+    if url is None or url.scheme not in ("http", "https") or not url.netloc:
+        raise FieldValueValidationError(
+            f"source_url {source_url!r} is not an http(s) address. "
+            "Without a source a value cannot be checked (A5.1)."
+        )
+
+
+def _check_retrieval(as_of: dt.date, retrieved_at: dt.datetime) -> None:
+    # Like available_at >= event_time for bars (K2). Compared in UTC,
+    # exactly like the CHECK in the table.
+    if retrieved_at.date() < as_of:
+        raise FieldValueValidationError(
+            f"retrieved_at ({retrieved_at.isoformat()}) is before the as-of date "
+            f"({as_of}). A document cannot be retrieved before it exists "
+            "(K2; compared in UTC)."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class FieldValue:
     """A single master-data value with its complete provenance.
@@ -345,7 +390,9 @@ class FieldValue:
         as_of: Date of the document.
         retrieved_at: From when the app knew the value, tz-aware.
         period: Calendar year for annual values, otherwise empty.
-        unit: Set from ``FIELDS``. Given only as a cross-check.
+        unit: Set from ``FIELDS``. Given only as a cross-check — except for a
+            field with several ``units`` (fund size: the currency of the
+            document), where it must be given.
     """
 
     isin: str
@@ -367,19 +414,23 @@ class FieldValue:
         except FieldValueValidationError as error:
             raise FieldValueValidationError(f"{self.field}: {error}") from None
 
-        unit = field_type.unit if self.unit is None else self.unit
-        if unit != field_type.unit:
-            raise FieldValueValidationError(
-                f"{self.field} is stored in {field_type.unit!r}, {unit!r} was given. "
-                "Convert, or change FIELDS — never mix silently."
-            )
+        if field_type.units:
+            # No default: a USD fund size taken for EUR would be off by the rate.
+            unit = self.unit
+            if unit not in field_type.units:
+                raise FieldValueValidationError(
+                    f"{self.field} is stored as published and must name its unit, one of "
+                    f"{', '.join(field_type.units)}; {unit!r} was given."
+                )
+        else:
+            unit = field_type.unit if self.unit is None else self.unit
+            if unit != field_type.unit:
+                raise FieldValueValidationError(
+                    f"{self.field} is stored in {field_type.unit!r}, {unit!r} was given. "
+                    "Convert, or change FIELDS — never mix silently."
+                )
 
-        url = urllib.parse.urlsplit(self.source_url) if isinstance(self.source_url, str) else None
-        if url is None or url.scheme not in ("http", "https") or not url.netloc:
-            raise FieldValueValidationError(
-                f"source_url {self.source_url!r} is not an http(s) address. "
-                "Without a source a value cannot be checked (A5.1)."
-            )
+        _check_source_url(self.source_url)
 
         source_type = _choice(SourceType)(self.source_type)
         status = _choice(VerificationStatus)(self.status)
@@ -391,14 +442,7 @@ class FieldValue:
 
         as_of = _date(self.as_of)
         retrieved_at = _timestamp("retrieved_at", self.retrieved_at)
-        # Like available_at >= event_time for bars (K2). Compared in UTC,
-        # exactly like the CHECK in the table.
-        if retrieved_at.date() < as_of:
-            raise FieldValueValidationError(
-                f"retrieved_at ({retrieved_at.isoformat()}) is before the as-of date "
-                f"({as_of}). A document cannot be retrieved before it exists "
-                "(K2; compared in UTC)."
-            )
+        _check_retrieval(as_of, retrieved_at)
 
         if field_type.per_year:
             if not isinstance(self.period, str) or not re.fullmatch(r"\d{4}", self.period):
@@ -419,6 +463,55 @@ class FieldValue:
         object.__setattr__(self, "value", value)
         object.__setattr__(self, "unit", unit)
         object.__setattr__(self, "source_type", source_type)
+        object.__setattr__(self, "status", status)
+        object.__setattr__(self, "as_of", as_of)
+        object.__setattr__(self, "retrieved_at", retrieved_at)
+
+
+@dataclass(frozen=True, slots=True)
+class FxRate:
+    """An ECB euro foreign-exchange reference rate with its provenance (A5.1).
+
+    Stored like every other value — value, source URL, as-of date, retrieval
+    date, verification status — and, like every other value, known only from
+    its retrieval. Quoted as the ECB quotes it: units of ``currency`` per
+    euro, so ``1.0843`` USD means 1 EUR = 1.0843 USD.
+
+    Attributes:
+        currency: A currency from ``CURRENCIES`` other than EUR.
+        rate: Units of ``currency`` per euro; positive. ``float`` is rejected.
+        source_url: Where the rate is published.
+        status: ``VERIFIED`` only if read in the ECB's publication.
+        as_of: The reference date the ECB publishes the rate for.
+        retrieved_at: From when the app knew the rate, tz-aware.
+    """
+
+    currency: str
+    rate: Decimal
+    source_url: str
+    status: VerificationStatus
+    as_of: dt.date
+    retrieved_at: dt.datetime
+
+    def __post_init__(self) -> None:
+        if self.currency not in CURRENCIES or self.currency == "EUR":
+            foreign = ", ".join(c for c in CURRENCIES if c != "EUR")
+            raise FieldValueValidationError(
+                f"rate for {self.currency!r}: expected one of {foreign} (per EUR)"
+            )
+        try:
+            rate = _decimal(self.rate)
+        except FieldValueValidationError as error:
+            raise FieldValueValidationError(f"rate: {error}") from None
+        if rate <= 0:
+            raise FieldValueValidationError(f"rate {rate} is not positive")
+        _check_source_url(self.source_url)
+        status = _choice(VerificationStatus)(self.status)
+        as_of = _date(self.as_of)
+        retrieved_at = _timestamp("retrieved_at", self.retrieved_at)
+        _check_retrieval(as_of, retrieved_at)
+
+        object.__setattr__(self, "rate", rate)
         object.__setattr__(self, "status", status)
         object.__setattr__(self, "as_of", as_of)
         object.__setattr__(self, "retrieved_at", retrieved_at)
@@ -454,6 +547,23 @@ CREATE TABLE IF NOT EXISTS instrument_fields (
 
 CREATE INDEX IF NOT EXISTS instrument_fields_pit_idx
     ON instrument_fields (isin, field, retrieved_at);
+
+CREATE SEQUENCE IF NOT EXISTS fx_rates_row_id START 1;
+
+-- ECB reference rates (FxRate), append-only like instrument_fields.
+CREATE TABLE IF NOT EXISTS fx_rates (
+    row_id        BIGINT      PRIMARY KEY DEFAULT nextval('fx_rates_row_id'),
+    currency      VARCHAR     NOT NULL,
+    -- Canonical text, for the same reason as instrument_fields.value.
+    rate          VARCHAR     NOT NULL,
+    source_url    VARCHAR     NOT NULL,
+    status        VARCHAR     NOT NULL,
+    as_of         DATE        NOT NULL,
+    retrieved_at  TIMESTAMPTZ NOT NULL,
+    ingested_at   TIMESTAMPTZ NOT NULL,
+    CHECK (status IN ('VERIFIED', 'UNVERIFIED')),
+    CHECK (CAST(timezone('UTC', retrieved_at) AS DATE) >= as_of)
+);
 """
 
 # What a view returns, in the order of the FieldValue attributes.
@@ -476,9 +586,9 @@ class InstrumentView:
     """Master data as it was known at time ``cut_off``.
 
     The only object product selection gets to see. It returns only values
-    with ``retrieved_at`` at or before this view's ``cut_off``; a factsheet
-    retrieved only after the cut-off date does not exist for this view. There
-    is no method that returns "everything".
+    and exchange rates with ``retrieved_at`` at or before this view's
+    ``cut_off``; a factsheet retrieved only after the cut-off date does not
+    exist for this view. There is no method that returns "everything".
     """
 
     def __init__(self, conn: duckdb.DuckDBPyConnection, cut_off: dt.datetime) -> None:
@@ -518,15 +628,55 @@ class InstrumentView:
         ).fetchall()
         return [row[0] for row in rows]
 
+    def rate_for(self, currency: str, as_of: dt.date) -> FxRate:
+        """The ECB rate for converting a value of date ``as_of`` into EUR (A5.1).
+
+        The rate of that very date. If none is known for it (weekend, TARGET
+        holiday), the last one before it is carried forward, as in strategy
+        catalogue G4 (decided in v1.5) — never a later one. Only rates
+        retrieved by the cut-off date count: a converted value exists only if
+        the value and its rate were both known.
+
+        Raises:
+            LookupError: No rate on or before ``as_of`` known at the cut-off
+                date. Nothing is extrapolated backwards.
+        """
+        as_of = _date(as_of)
+        row = self._conn.execute(
+            """
+            SELECT currency, rate, source_url, status, as_of, retrieved_at
+            FROM fx_rates
+            WHERE currency = ? AND as_of <= ? AND retrieved_at <= ?
+            ORDER BY as_of DESC, retrieved_at DESC, row_id DESC
+            LIMIT 1
+            """,
+            [currency, as_of, self._cut_off],
+        ).fetchone()
+        if row is None:
+            raise LookupError(
+                f"no {currency} reference rate on or before {as_of} retrieved by the "
+                f"cut-off date {self._cut_off.isoformat()}; before the first known rate "
+                "there is nothing to carry forward"
+            )
+        return FxRate(*row)
+
     def _current(self, isin: str, field: str) -> list[FieldValue]:
-        """Per period the value in force: latest as-of date, then latest retrieval."""
+        """Per period the value in force (A5.1).
+
+        A KID first, whatever the as-of dates; then the latest as-of date,
+        the latest retrieval, the latest write — a total order. Only among
+        rows retrieved by the cut-off date.
+        """
         columns = ", ".join(_VIEW_COLUMNS)
+        # The KID taken from the enum, so that changing its value cannot
+        # silently switch the precedence off.
         sql = f"""
             SELECT {columns}
             FROM (
                 SELECT *, ROW_NUMBER() OVER (
                     PARTITION BY period
-                    ORDER BY as_of DESC, retrieved_at DESC, row_id DESC
+                    ORDER BY (source_type = '{SourceType.KID.value}') DESC,
+                             as_of DESC, retrieved_at DESC, row_id DESC
                 ) AS _rank
                 FROM instrument_fields
                 WHERE isin = ? AND field = ? AND retrieved_at <= ?
@@ -553,6 +703,19 @@ _INSERT = """
         isin, field, period, value, unit, source_url, source_type, status,
         as_of, retrieved_at, ingested_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+_SAME_RATE = """
+    SELECT 1 FROM fx_rates
+    WHERE currency = ? AND rate = ? AND source_url = ? AND status = ? AND as_of = ?
+      AND retrieved_at = ?
+    LIMIT 1
+"""
+
+_INSERT_RATE = """
+    INSERT INTO fx_rates (
+        currency, rate, source_url, status, as_of, retrieved_at, ingested_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -598,11 +761,11 @@ class InstrumentStore:
 
     def append(
         self,
-        values: Iterable[FieldValue],
+        values: Iterable[FieldValue | FxRate],
         *,
         ingested_at: dt.datetime | None = None,
     ) -> int:
-        """Appends values. Never changes existing rows.
+        """Appends values and exchange rates. Never changes existing rows.
 
         A verbatim repetition — the same source file loaded a second time — is
         skipped, so that reloading stays idempotent. Any difference, even just
@@ -610,14 +773,15 @@ class InstrumentStore:
         none is written.
 
         Args:
-            values: The values to append.
+            values: The values and rates to append.
             ingested_at: Storage time, default "now". Tests only.
 
         Returns:
             Number of newly written rows.
 
         Raises:
-            FieldValueValidationError: If an element is not a ``FieldValue``.
+            FieldValueValidationError: If an element is neither a
+                ``FieldValue`` nor an ``FxRate``.
         """
         now = (
             dt.datetime.now(dt.timezone.utc)
@@ -625,15 +789,10 @@ class InstrumentStore:
             else _timestamp("ingested_at", ingested_at)
         )
 
-        rows: list[Sequence[Any]] = []
+        rows: list[tuple[str, str, Sequence[Any]]] = []
         for value in values:
-            if not isinstance(value, FieldValue):
-                raise FieldValueValidationError(
-                    f"Expected a FieldValue, got: {type(value).__name__}. "
-                    "Raw dicts are not accepted — they bypass input validation."
-                )
-            rows.append(
-                (
+            if isinstance(value, FieldValue):
+                row: Sequence[Any] = (
                     value.isin,
                     value.field,
                     value.period,
@@ -645,15 +804,30 @@ class InstrumentStore:
                     value.as_of,
                     value.retrieved_at,
                 )
-            )
+                rows.append((_SAME_ROW, _INSERT, row))
+            elif isinstance(value, FxRate):
+                row = (
+                    value.currency,
+                    _as_text(value.rate),
+                    value.source_url,
+                    value.status.value,
+                    value.as_of,
+                    value.retrieved_at,
+                )
+                rows.append((_SAME_RATE, _INSERT_RATE, row))
+            else:
+                raise FieldValueValidationError(
+                    f"Expected a FieldValue or an FxRate, got: {type(value).__name__}. "
+                    "Raw dicts are not accepted — they bypass input validation."
+                )
 
         written = 0
         self._conn.begin()
         try:
-            for row in rows:
-                if self._conn.execute(_SAME_ROW, row).fetchone():
+            for same, insert, row in rows:
+                if self._conn.execute(same, row).fetchone():
                     continue
-                self._conn.execute(_INSERT, [*row, now])
+                self._conn.execute(insert, [*row, now])
                 written += 1
         except BaseException:
             self._conn.rollback()
@@ -746,13 +920,25 @@ def _values_from_document(document: object) -> list[FieldValue]:
     values: list[FieldValue] = []
     for field, value in document["values"].items():
         if not _field_type(field).per_year:
-            values.append(FieldValue(field=field, value=value, **provenance))
+            values.append(FieldValue(field=field, **_with_unit(value), **provenance))
             continue
         if not isinstance(value, dict):
             raise FieldValueValidationError(
                 f'{field} is an annual value: expected {{"2025": …}}, got {value!r}'
             )
         values += [
-            FieldValue(field=field, value=v, period=p, **provenance) for p, v in value.items()
+            FieldValue(field=field, **_with_unit(v), period=p, **provenance)
+            for p, v in value.items()
         ]
     return values
+
+
+def _with_unit(value: object) -> dict[str, object]:
+    """A bare value, or ``{"value": …, "unit": …}`` naming its unit."""
+    if not isinstance(value, dict):
+        return {"value": value}
+    if set(value) != {"value", "unit"}:
+        raise FieldValueValidationError(
+            f'expected a value or {{"value": …, "unit": …}}, got {value!r}'
+        )
+    return value

@@ -24,6 +24,7 @@ from trading_app.instruments import (
     Distribution,
     FieldValue,
     FieldValueValidationError,
+    FxRate,
     InstrumentStore,
     Replication,
     SourceType,
@@ -57,7 +58,13 @@ def make_value(
     period: str = "",
     unit: str | None = None,
 ) -> FieldValue:
-    """Builds a valid FieldValue; by default it is retrieved on the as-of date."""
+    """Builds a valid FieldValue; by default it is retrieved on the as-of date.
+
+    A fund size must name its currency; without ``unit`` it is EUR here, in
+    the helper only — ``FieldValue`` itself defaults nothing.
+    """
+    if unit is None and field == "fund_size":
+        unit = "EUR"
     return FieldValue(
         isin=isin,
         field=field,
@@ -69,6 +76,28 @@ def make_value(
         retrieved_at=retrieved_at or ts(as_of.year, as_of.month, as_of.day),
         period=period,
         unit=unit,
+    )
+
+
+URL_ECB = "https://ecb.invalid/eurofxref-hist.csv"
+
+
+def make_rate(
+    rate: object = Decimal("1.0843"),
+    as_of: dt.date = dt.date(2026, 8, 28),
+    *,
+    retrieved_at: dt.datetime | None = None,
+    status: VerificationStatus = VerificationStatus.VERIFIED,
+    currency: str = "USD",
+) -> FxRate:
+    """A placeholder ECB rate, by default retrieved on its reference date."""
+    return FxRate(
+        currency=currency,
+        rate=rate,
+        source_url=URL_ECB,
+        status=status,
+        as_of=as_of,
+        retrieved_at=retrieved_at or ts(as_of.year, as_of.month, as_of.day, 16),
     )
 
 
@@ -401,6 +430,239 @@ class TestPointInTime:
 
 
 # ---------------------------------------------------------------------------
+# KID precedence (A5.1, v1.4)
+# ---------------------------------------------------------------------------
+
+
+def factsheet_value(field: str = "ter", value: object = Decimal("0.2222"), **kwargs) -> FieldValue:
+    kwargs.setdefault("as_of", dt.date(2026, 8, 31))
+    kwargs.setdefault("retrieved_at", ts(2026, 9, 3))
+    return make_value(field, value, source_type=SourceType.FACTSHEET,
+                      source_url=URL_FACTSHEET, **kwargs)
+
+
+class TestKidPrecedence:
+    def test_older_kid_beats_newer_factsheet(self, store) -> None:
+        """The KID value applies, whatever the as-of dates of other documents."""
+        store.append([
+            make_value(value=Decimal("0.1111"), as_of=dt.date(2026, 2, 15),
+                       retrieved_at=ts(2026, 3, 1)),
+            factsheet_value(value=Decimal("0.2222")),
+        ])
+        ter = store.view(ts(2026, 9, 10)).field(ISIN_A, "ter")
+        assert (ter.value, ter.source_type) == (Decimal("0.1111"), SourceType.KID)
+
+    def test_disagreement_stays_in_the_history(self, store) -> None:
+        """Nothing is resolved silently: the losing factsheet value is still there."""
+        store.append([make_value(value=Decimal("0.1111")), factsheet_value(value=Decimal("0.2222"))])
+        assert list(store.history(ISIN_A, "ter")["value"]) == ["0.1111", "0.2222"]
+        assert list(store.history(ISIN_A, "ter")["source_type"]) == ["kid", "factsheet"]
+
+    @pytest.mark.parametrize("other", [s for s in SourceType if s is not SourceType.KID])
+    def test_kid_beats_every_other_document(self, store, other) -> None:
+        """Not only the factsheet — that keeps the ranking a total order (A5.1, A15)."""
+        status = (VerificationStatus.UNVERIFIED if other is SourceType.SECONDARY
+                  else VerificationStatus.VERIFIED)
+        store.append([
+            make_value(value=Decimal("0.1111"), as_of=dt.date(2025, 2, 15),
+                       retrieved_at=ts(2025, 3, 1)),
+            make_value(value=Decimal("0.2222"), source_type=other, status=status,
+                       as_of=dt.date(2026, 8, 31), retrieved_at=ts(2026, 9, 3)),
+        ])
+        assert store.view(ts(2026, 9, 10)).field(ISIN_A, "ter").value == Decimal("0.1111")
+
+    def test_among_kids_the_latest_as_of_applies(self, store) -> None:
+        """The as-of rule decides among KID values; a newer factsheet does not interfere."""
+        store.append([
+            make_value(value=Decimal("0.1111"), as_of=dt.date(2026, 2, 15),
+                       retrieved_at=ts(2026, 3, 1)),
+            # Last year's KID, recorded afterwards.
+            make_value(value=Decimal("0.3333"), as_of=dt.date(2025, 2, 10),
+                       retrieved_at=ts(2026, 9, 1)),
+            factsheet_value(value=Decimal("0.2222")),
+        ])
+        assert store.view(ts(2026, 9, 10)).field(ISIN_A, "ter").value == Decimal("0.1111")
+
+    def test_without_a_kid_the_latest_as_of_applies(self, store) -> None:
+        store.append([
+            factsheet_value(value=Decimal("0.2222"), as_of=dt.date(2026, 8, 31),
+                            retrieved_at=ts(2026, 9, 3)),
+            factsheet_value(value=Decimal("0.4444"), as_of=dt.date(2026, 5, 31),
+                            retrieved_at=ts(2026, 9, 5)),
+        ])
+        assert store.view(ts(2026, 9, 10)).field(ISIN_A, "ter").value == Decimal("0.2222")
+
+    def test_kid_retrieved_after_the_cutoff_does_not_win(self, store) -> None:
+        """Precedence ranks only what is known at the cut-off date.
+
+        The KID's as-of date lies before the cut-off date, its retrieval after
+        it. Ranking it first anyway would hand a backtest a value the app did
+        not have yet — look-ahead that no plausibility check would notice.
+        """
+        store.append([
+            factsheet_value(value=Decimal("0.2222"), as_of=dt.date(2026, 8, 31),
+                            retrieved_at=ts(2026, 9, 3)),
+            make_value(value=Decimal("0.1111"), as_of=dt.date(2026, 2, 15),
+                       retrieved_at=ts(2026, 10, 1)),
+        ])
+        just_before = ts(2026, 10, 1) - dt.timedelta(seconds=1)
+        assert store.view(ts(2026, 9, 25)).field(ISIN_A, "ter").value == Decimal("0.2222")
+        assert store.view(just_before).field(ISIN_A, "ter").value == Decimal("0.2222")
+        assert store.view(ts(2026, 10, 1)).field(ISIN_A, "ter").value == Decimal("0.1111")
+
+    def test_annual_values_resolve_per_period(self, store) -> None:
+        """A KID value for 2024 does not suppress the factsheet's value for 2025."""
+        store.append([
+            make_value("tracking_difference", Decimal("-0.0100"), period="2024",
+                       as_of=dt.date(2025, 2, 15), retrieved_at=ts(2025, 3, 1)),
+            factsheet_value("tracking_difference", Decimal("-0.0200"), period="2024"),
+            factsheet_value("tracking_difference", Decimal("0.0300"), period="2025"),
+        ])
+        series = store.view(ts(2026, 9, 10)).series(ISIN_A, "tracking_difference")
+        assert {year: (v.value, v.source_type) for year, v in series.items()} == {
+            "2024": (Decimal("-0.0100"), SourceType.KID),
+            "2025": (Decimal("0.0300"), SourceType.FACTSHEET),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Fund size in its published currency (A5.1, v1.4)
+# ---------------------------------------------------------------------------
+
+
+class TestFundSizeCurrency:
+    def test_usd_is_stored_as_published(self, store) -> None:
+        store.append([factsheet_value("fund_size", Decimal("540000000"), unit="USD")])
+        size = store.view(ts(2026, 9, 10)).field(ISIN_A, "fund_size")
+        assert (size.value, size.unit) == (Decimal("540000000"), "USD")
+
+    def test_same_number_in_two_currencies_are_two_rows(self, store) -> None:
+        assert store.append([
+            make_value("fund_size", Decimal("540000000"), unit="EUR"),
+            make_value("fund_size", Decimal("540000000"), unit="USD"),
+        ]) == 2
+
+    @pytest.mark.parametrize("unit", ["", "GBP", "usd", "€"])
+    def test_unknown_or_empty_currency_is_rejected(self, unit) -> None:
+        with pytest.raises(FieldValueValidationError, match="must name its unit"):
+            make_value("fund_size", Decimal("540000000"), unit=unit)
+
+    def test_missing_currency_is_not_defaulted(self) -> None:
+        """``FieldValue`` itself assumes no currency (the test helper does)."""
+        with pytest.raises(FieldValueValidationError, match="must name its unit"):
+            FieldValue(
+                isin=ISIN_A, field="fund_size", value=Decimal("540000000"),
+                source_url=URL_FACTSHEET, source_type=SourceType.FACTSHEET,
+                status=VerificationStatus.VERIFIED, as_of=dt.date(2026, 8, 31),
+                retrieved_at=ts(2026, 9, 3),
+            )
+
+
+# ---------------------------------------------------------------------------
+# ECB reference rates (A5.1, v1.4; carry-forward v1.5)
+# ---------------------------------------------------------------------------
+
+FRIDAY = dt.date(2026, 8, 28)
+SUNDAY = dt.date(2026, 8, 30)
+MONDAY = dt.date(2026, 8, 31)
+
+
+class TestFxRate:
+    def test_rate_comes_back_exactly(self, store) -> None:
+        store.append([make_rate(Decimal("1.08430"))])
+        rate = store.view(ts(2026, 9, 1)).rate_for("USD", FRIDAY)
+        assert isinstance(rate.rate, Decimal)
+        assert str(rate.rate) == "1.08430"
+        assert (rate.as_of, rate.source_url, rate.status) == (
+            FRIDAY, URL_ECB, VerificationStatus.VERIFIED
+        )
+
+    def test_float_rate_is_rejected(self) -> None:
+        with pytest.raises(FieldValueValidationError, match="float is forbidden"):
+            make_rate(1.0843)
+
+    @pytest.mark.parametrize("rate", [Decimal("0"), Decimal("-1.0843")])
+    def test_rate_must_be_positive(self, rate) -> None:
+        with pytest.raises(FieldValueValidationError, match="not positive"):
+            make_rate(rate)
+
+    @pytest.mark.parametrize("currency", ["EUR", "GBP", "usd", ""])
+    def test_only_foreign_fund_size_currencies(self, currency) -> None:
+        with pytest.raises(FieldValueValidationError, match="expected one of USD"):
+            make_rate(currency=currency)
+
+    def test_retrieval_before_the_reference_date_is_rejected(self) -> None:
+        with pytest.raises(FieldValueValidationError, match="before the as-of date"):
+            make_rate(as_of=FRIDAY, retrieved_at=ts(2026, 8, 27))
+
+    def test_source_is_mandatory(self) -> None:
+        with pytest.raises(FieldValueValidationError, match="source_url"):
+            FxRate(currency="USD", rate=Decimal("1.0843"), source_url="ecb",
+                   status=VerificationStatus.VERIFIED, as_of=FRIDAY, retrieved_at=ts(2026, 8, 28))
+
+    def test_weekend_carries_fridays_rate_forward(self, store) -> None:
+        """Saturday and Sunday get Friday's rate — never Monday's, although it is known."""
+        assert (FRIDAY.weekday(), SUNDAY.weekday()) == (4, 6)
+        store.append([make_rate(Decimal("1.0843"), FRIDAY), make_rate(Decimal("1.2000"), MONDAY)])
+        view = store.view(ts(2026, 9, 25))
+        for day in (FRIDAY, FRIDAY + dt.timedelta(days=1), SUNDAY):
+            assert view.rate_for("USD", day).as_of == FRIDAY
+        assert view.rate_for("USD", MONDAY).rate == Decimal("1.2000")
+
+    def test_before_the_earliest_rate_raises(self, store) -> None:
+        """Nothing is extrapolated backwards."""
+        store.append([make_rate(as_of=FRIDAY)])
+        with pytest.raises(LookupError, match="nothing to carry forward"):
+            store.view(ts(2026, 9, 25)).rate_for("USD", FRIDAY - dt.timedelta(days=1))
+
+    def test_empty_store_raises(self, store) -> None:
+        with pytest.raises(LookupError, match="no USD reference rate on or before 2026-08-28"):
+            store.view(ts(2026, 9, 25)).rate_for("USD", FRIDAY)
+
+    def test_rate_counts_from_its_retrieval(self, store) -> None:
+        """Like every other value (A5.1): not from its reference date."""
+        store.append([make_rate(as_of=FRIDAY, retrieved_at=ts(2026, 9, 10))])
+        with pytest.raises(LookupError):
+            store.view(ts(2026, 9, 10) - dt.timedelta(seconds=1)).rate_for("USD", FRIDAY)
+        assert store.view(ts(2026, 9, 10)).rate_for("USD", FRIDAY).rate == Decimal("1.0843")
+
+    def test_correction_applies_only_from_its_retrieval(self, store) -> None:
+        store.append([make_rate(Decimal("1.0843"), retrieved_at=ts(2026, 8, 28, 16))])
+        store.append([make_rate(Decimal("1.0844"), retrieved_at=ts(2026, 9, 1))])
+        assert store.view(ts(2026, 8, 30)).rate_for("USD", FRIDAY).rate == Decimal("1.0843")
+        assert store.view(ts(2026, 9, 2)).rate_for("USD", FRIDAY).rate == Decimal("1.0844")
+        # Nothing overwritten.
+        rows = store._conn.execute("SELECT rate FROM fx_rates ORDER BY row_id").fetchall()
+        assert rows == [("1.0843",), ("1.0844",)]
+
+    def test_reloading_rates_is_idempotent(self, store) -> None:
+        rates = [make_rate(), make_value()]
+        assert store.append(rates) == 2
+        assert store.append(rates) == 0
+
+    def test_rates_survive_closing(self, tmp_path) -> None:
+        path = tmp_path / "instruments.duckdb"
+        with InstrumentStore(path) as s:
+            s.append([make_rate(Decimal("1.0843"))])
+        with InstrumentStore(path) as s:
+            assert s.view(ts(2026, 9, 1)).rate_for("USD", SUNDAY).rate == Decimal("1.0843")
+
+    def test_table_checks_rates_itself(self, store) -> None:
+        """K2 against raw SQL too: no retrieval before the reference date."""
+        import duckdb
+
+        with pytest.raises(duckdb.ConstraintException):
+            store._conn.execute(
+                """
+                INSERT INTO fx_rates (currency, rate, source_url, status, as_of,
+                    retrieved_at, ingested_at)
+                VALUES ('USD', '1.0843', 'https://ecb.invalid/a.csv', 'VERIFIED',
+                        DATE '2026-08-28', TIMESTAMPTZ '2026-08-27 12:00:00+00', now())
+                """
+            )
+
+
+# ---------------------------------------------------------------------------
 # Append-only
 # ---------------------------------------------------------------------------
 
@@ -564,7 +826,7 @@ class TestLeakage:
     def test_no_access_to_the_raw_table(self, store) -> None:
         view = store.view(ts(2026, 9, 1))
         public = {n for n in dir(view) if not n.startswith("_")}
-        assert public == {"cut_off", "field", "series", "isins"}
+        assert public == {"cut_off", "field", "series", "isins", "rate_for"}
 
     @settings(max_examples=60, deadline=None)
     @given(
@@ -575,6 +837,8 @@ class TestLeakage:
                 st.integers(min_value=0, max_value=500),  # as-of: days after 2024-01-01
                 st.integers(min_value=0, max_value=90),  # retrieval: days after the as-of date
                 st.integers(min_value=-9999, max_value=9999),  # value in ten-thousandths
+                # KID precedence ranks too: it must rank only what is known.
+                st.sampled_from([SourceType.KID, SourceType.FACTSHEET]),
             ),
             min_size=1,
             max_size=25,
@@ -591,13 +855,14 @@ class TestLeakage:
         base = dt.date(2024, 1, 1)
         cutoff = ts(2024, 1, 1) + dt.timedelta(days=cutoff_day)
         values = []
-        for isin, field, as_of_day, delay, ten_thousandths in rows:
+        for isin, field, as_of_day, delay, ten_thousandths, source_type in rows:
             as_of = base + dt.timedelta(days=as_of_day)
             values.append(
                 make_value(
                     field,
                     Decimal(ten_thousandths).scaleb(-4),
                     isin=isin,
+                    source_type=source_type,
                     as_of=as_of,
                     retrieved_at=ts(as_of.year, as_of.month, as_of.day)
                     + dt.timedelta(days=delay),
@@ -616,6 +881,49 @@ class TestLeakage:
                 for single in value.values() if isinstance(value, dict) else [value]:
                     if single is not None:
                         assert single.retrieved_at <= cutoff
+
+    @settings(max_examples=60, deadline=None)
+    @given(
+        rates=st.lists(
+            st.tuples(
+                st.integers(min_value=0, max_value=60),  # reference date: days after 2026-01-01
+                st.integers(min_value=0, max_value=30),  # retrieval: days after it
+                st.integers(min_value=1, max_value=20000),  # rate in ten-thousandths
+            ),
+            max_size=15,
+        ),
+        query_day=st.integers(min_value=0, max_value=90),
+        cutoff_day=st.integers(min_value=0, max_value=90),
+    )
+    def test_rate_truncation_changes_nothing(self, rates, query_day, cutoff_day) -> None:
+        """The same property for the rates, with carry-forward in play.
+
+        Neither a rate retrieved after the cut-off date nor one dated after
+        the queried date may reach the result.
+        """
+        base = dt.date(2026, 1, 1)
+        cutoff = ts(2026, 1, 1) + dt.timedelta(days=cutoff_day)
+        query = base + dt.timedelta(days=query_day)
+        values = [
+            make_rate(Decimal(ten_thousandths).scaleb(-4), base + dt.timedelta(days=day),
+                      retrieved_at=ts(2026, 1, 1, 16) + dt.timedelta(days=day + delay))
+            for day, delay, ten_thousandths in rates
+        ]
+
+        def lookup(store: InstrumentStore) -> FxRate | None:
+            try:
+                return store.view(cutoff).rate_for("USD", query)
+            except LookupError:
+                return None
+
+        with InstrumentStore(":memory:") as full, InstrumentStore(":memory:") as known:
+            full.append(values)
+            known.append([v for v in values if v.retrieved_at <= cutoff])
+            result = lookup(full)
+            assert result == lookup(known)
+            if result is not None:
+                assert result.retrieved_at <= cutoff
+                assert result.as_of <= query
 
 
 # ---------------------------------------------------------------------------
@@ -647,7 +955,7 @@ FACTSHEET_DOCUMENT = {
     "retrieved_at": "2026-09-03T08:00:00+00:00",
     "status": "UNVERIFIED",
     "values": {
-        "fund_size": 123456789.01,
+        "fund_size": {"value": 123456789.01, "unit": "USD"},
         "tracking_difference": {"2024": -0.0123, "2025": 0.0456},
     },
 }
@@ -694,6 +1002,22 @@ class TestSourceFile:
     def test_unknown_field_is_reported(self, tmp_path) -> None:
         broken = {**KID_DOCUMENT, "values": {"terr": 0.1}}
         with pytest.raises(FieldValueValidationError, match="Document 1.*terr"):
+            load_source_file(_write(tmp_path, [broken]))
+
+    def test_fund_size_names_its_currency(self, tmp_path) -> None:
+        values = load_source_file(_write(tmp_path, [FACTSHEET_DOCUMENT]))
+        size = next(v for v in values if v.field == "fund_size")
+        assert (size.value, size.unit) == (Decimal("123456789.01"), "USD")
+
+    def test_fund_size_without_currency_is_reported(self, tmp_path) -> None:
+        broken = {**FACTSHEET_DOCUMENT, "values": {"fund_size": 123456789.01}}
+        with pytest.raises(FieldValueValidationError, match="Document 1.*must name its unit"):
+            load_source_file(_write(tmp_path, [broken]))
+
+    def test_unit_object_needs_value_and_unit(self, tmp_path) -> None:
+        broken = {**FACTSHEET_DOCUMENT,
+                  "values": {"fund_size": {"value": 123456789.01, "currency": "USD"}}}
+        with pytest.raises(FieldValueValidationError, match="Document 1: expected a value or"):
             load_source_file(_write(tmp_path, [broken]))
 
     def test_annual_value_without_year_is_reported(self, tmp_path) -> None:

@@ -21,11 +21,18 @@ from trading_app.hard_filters import (
     check_hard_filters,
     full_calendar_years,
 )
-from trading_app.instruments import FieldValue, InstrumentStore, SourceType, VerificationStatus
+from trading_app.instruments import (
+    FieldValue,
+    FxRate,
+    InstrumentStore,
+    SourceType,
+    VerificationStatus,
+)
 
 UTC = dt.timezone.utc
 ISIN = "XX0000000002"  # placeholder, check digit computed by hand
 URL = "https://issuer.invalid/kid.pdf"
+URL_ECB = "https://ecb.invalid/eurofxref-hist.csv"
 CUTOFF = dt.datetime(2026, 9, 25, 12, tzinfo=UTC)
 
 INDEX = {
@@ -36,10 +43,14 @@ INDEX = {
 
 def make_value(field: str, content: object, *, status=VerificationStatus.VERIFIED,
                source_type=SourceType.KID,
-               retrieved_at=dt.datetime(2026, 3, 1, tzinfo=UTC)) -> FieldValue:
+               retrieved_at=dt.datetime(2026, 3, 1, tzinfo=UTC),
+               as_of=dt.date(2026, 2, 15), unit=None) -> FieldValue:
+    # A fund size must name its currency; EUR unless a test says otherwise.
+    if unit is None and field == "fund_size":
+        unit = "EUR"
     return FieldValue(
         isin=ISIN, field=field, value=content, source_url=URL, source_type=source_type,
-        status=status, as_of=dt.date(2026, 2, 15), retrieved_at=retrieved_at,
+        status=status, as_of=as_of, retrieved_at=retrieved_at, unit=unit,
     )
 
 
@@ -211,6 +222,121 @@ class TestFilter3:
     def test_thresholds(self, block, size, expected) -> None:
         r = evaluate(block, passing_values(block, fund_size=Decimal(size)))
         assert verdict_of(r, 3) is expected
+
+
+# Placeholder rates; 2026-08-28 is a Friday.
+FRIDAY = dt.date(2026, 8, 28)
+SUNDAY = dt.date(2026, 8, 30)
+MONDAY = dt.date(2026, 8, 31)
+
+
+def usd_size(amount: str, as_of: dt.date = FRIDAY) -> FieldValue:
+    """A verified fund size in USD from a factsheet, retrieved within the cut-off date."""
+    return make_value("fund_size", Decimal(amount), unit="USD", as_of=as_of,
+                      source_type=SourceType.FACTSHEET,
+                      retrieved_at=dt.datetime(2026, 9, 3, tzinfo=UTC))
+
+
+def usd_rate(rate: str, as_of: dt.date = FRIDAY, *, retrieved_at=None,
+             status=VerificationStatus.VERIFIED) -> FxRate:
+    return FxRate(
+        currency="USD", rate=Decimal(rate), source_url=URL_ECB, status=status, as_of=as_of,
+        retrieved_at=retrieved_at or dt.datetime(as_of.year, as_of.month, as_of.day, 15,
+                                                 tzinfo=UTC),
+    )
+
+
+def k1_with(*extra) -> list:
+    """The passing K1 set, with the fund size (and its rates) given by the test."""
+    return passing_values(BuildingBlock.K1, fund_size=None) + list(extra)
+
+
+def reason_of(result, number: int) -> str:
+    (reason,) = [c.reason for c in result.checks if c.number == number]
+    return reason
+
+
+class TestFilter3Currency:
+    """A5.2 no. 3 with a fund size in USD: the thresholds are EUR (A5.1, v1.4)."""
+
+    def test_above_threshold_in_usd_but_below_in_eur_is_violated(self) -> None:
+        # 520m ≥ 500m in USD — at 1.0843 USD per EUR only 479.6m EUR.
+        r = evaluate(BuildingBlock.K1, k1_with(usd_size("520000000"), usd_rate("1.0843")))
+        assert verdict_of(r, 3) is Verdict.VIOLATED
+
+    def test_below_threshold_in_usd_but_above_in_eur_is_fulfilled(self) -> None:
+        # 480m < 500m in USD — at 0.9500 USD per EUR 505.3m EUR.
+        r = evaluate(BuildingBlock.K1, k1_with(usd_size("480000000"), usd_rate("0.9500")))
+        assert verdict_of(r, 3) is Verdict.FULFILLED
+        assert r.eligible
+
+    @pytest.mark.parametrize(
+        ("amount", "expected"),
+        [("542150000", Verdict.FULFILLED), ("542149999.99", Verdict.VIOLATED)],
+    )
+    def test_limit_counts_after_conversion(self, amount, expected) -> None:
+        """500m EUR × 1.0843 = 542.15m USD exactly; ≥, so the limit counts."""
+        r = evaluate(BuildingBlock.K1, k1_with(usd_size(amount), usd_rate("1.0843")))
+        assert verdict_of(r, 3) is expected
+
+    def test_rate_of_its_own_as_of_date_not_the_latest(self) -> None:
+        """A later rate — today's, on a re-run — must not move a stored fund size."""
+        r = evaluate(BuildingBlock.K1, k1_with(
+            usd_size("520000000"), usd_rate("1.0843"), usd_rate("0.9500", dt.date(2026, 9, 24)),
+        ))
+        assert verdict_of(r, 3) is Verdict.VIOLATED
+        assert "of 2026-08-28" in reason_of(r, 3)
+
+    def test_weekend_carries_fridays_rate_forward(self) -> None:
+        """No ECB rate on a Sunday: Friday's applies (v1.5, as in G4), never Monday's."""
+        assert (FRIDAY.weekday(), SUNDAY.weekday()) == (4, 6)
+        r = evaluate(BuildingBlock.K1, k1_with(
+            usd_size("520000000", SUNDAY), usd_rate("1.0843", FRIDAY), usd_rate("0.9500", MONDAY),
+        ))
+        assert verdict_of(r, 3) is Verdict.VIOLATED  # Monday's rate would have let it pass
+        reason = reason_of(r, 3)
+        assert "1.0843 USD per EUR of 2026-08-28, carried forward to 2026-08-30" in reason
+        assert "0.9500" not in reason
+
+    def test_no_rate_on_or_before_the_as_of_date_is_open(self) -> None:
+        """Only a later rate is known: nothing to carry forward, nothing guessed backwards."""
+        r = evaluate(BuildingBlock.K1, k1_with(usd_size("900000000"), usd_rate("1.0843", MONDAY)))
+        assert verdict_of(r, 3) is Verdict.OPEN
+        assert "no USD reference rate on or before 2026-08-28" in reason_of(r, 3)
+        assert not r.eligible
+
+    def test_rate_retrieved_after_the_cutoff_does_not_count(self) -> None:
+        """A5.1: a converted fund size exists only if the rate, too, was retrieved by then."""
+        late = dt.datetime(2026, 10, 1, tzinfo=UTC)
+        values = k1_with(usd_size("900000000"), usd_rate("1.0843", retrieved_at=late))
+        assert verdict_of(evaluate(BuildingBlock.K1, values, CUTOFF), 3) is Verdict.OPEN
+        assert verdict_of(evaluate(BuildingBlock.K1, values, late), 3) is Verdict.FULFILLED
+
+    def test_unverified_rate_is_open(self) -> None:
+        r = evaluate(BuildingBlock.K1, k1_with(
+            usd_size("900000000"), usd_rate("1.0843", status=VerificationStatus.UNVERIFIED),
+        ))
+        assert verdict_of(r, 3) is Verdict.OPEN
+        assert "UNVERIFIED" in reason_of(r, 3)
+
+    def test_eur_value_needs_no_rate(self) -> None:
+        """Not a single rate in the store: a EUR fund size is decided nonetheless."""
+        r = evaluate(BuildingBlock.K1, passing_values(BuildingBlock.K1))
+        assert verdict_of(r, 3) is Verdict.FULFILLED
+        assert "fund_size = 500000000 EUR" in reason_of(r, 3)
+
+    def test_reason_names_value_rate_and_its_date(self) -> None:
+        """Enough to recompute the verdict by hand."""
+        r = evaluate(BuildingBlock.K1, k1_with(usd_size("520000000"), usd_rate("1.0843")))
+        reason = reason_of(r, 3)
+        for part in (
+            "fund_size = 520000000 USD (factsheet, as of 2026-08-28)",
+            "ECB reference rate 1.0843 USD per EUR of 2026-08-28",
+            URL_ECB,
+            "required ≥ 500000000 EUR = 542150000.0000 USD",
+        ):
+            assert part in reason
+        assert "carried forward" not in reason
 
 
 # ---------------------------------------------------------------------------

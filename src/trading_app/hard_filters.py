@@ -21,7 +21,8 @@ Not here: scoring A5.3, index choice A5.4, product switch A5.6 and filter 7
 (savings-plan-eligible at the broker — user data, not master data).
 
 All values come from an ``InstrumentView``; its cut-off date is also the
-cut-off date for the history (filter 4).
+cut-off date for the history (filter 4) and for the exchange rate that
+converts a foreign-currency fund size (filter 3).
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Context, Decimal, Inexact
 from enum import StrEnum
 from typing import Any
 
@@ -184,13 +185,7 @@ def check_hard_filters(view: InstrumentView, isin: str, block: BuildingBlock) ->
         )
 
     # No. 3
-    threshold = MIN_FUND_SIZE_LARGE if block in _LARGE_BLOCKS else MIN_FUND_SIZE
-    checks.append(
-        _check(
-            view, isin, 3, "Fund size", "fund_size", lambda value: value >= threshold,
-            rule=f"≥ {threshold} EUR",
-        )
-    )
+    checks.append(_check_fund_size(view, isin, block))
 
     # No. 4
     history, new = _check_history(view, isin)
@@ -253,6 +248,49 @@ def _check(
         name,
         verdict,
         f"{field} = {value.value}, required {rule} ({value.source_type}, as of {value.as_of})",
+    )
+
+
+def _check_fund_size(view: InstrumentView, isin: str, block: BuildingBlock) -> Check:
+    """A5.2 no. 3: thresholds in EUR, a foreign fund size at its own as-of rate (A5.1).
+
+    The ECB rate of the value's own as-of date, never today's — otherwise a
+    stored fund size would change on every re-run. The threshold is converted
+    rather than the fund size: for a positive rate, ``size / rate ≥ threshold``
+    is ``size ≥ threshold × rate``, and the product is exact in ``Decimal``
+    where the quotient would be rounded. The reason states value, rate and
+    rate date, so the verdict can be recomputed by hand.
+    """
+    name = "Fund size"
+    threshold = MIN_FUND_SIZE_LARGE if block in _LARGE_BLOCKS else MIN_FUND_SIZE
+    value, open_check = _verified_value(view, isin, 3, name, "fund_size")
+    if open_check is not None:
+        return open_check
+    size = f"fund_size = {value.value} {value.unit} ({value.source_type}, as of {value.as_of})"
+    if value.unit == "EUR":
+        verdict = Verdict.FULFILLED if value.value >= threshold else Verdict.VIOLATED
+        return Check(3, name, verdict, f"{size}, required ≥ {threshold} EUR")
+
+    try:
+        rate = view.rate_for(value.unit, value.as_of)
+    except LookupError as error:
+        # A5.1: without a rate known at the cut-off date there is no EUR value.
+        return Check(3, name, Verdict.OPEN, f"{size} cannot be converted into EUR: {error}")
+    used = f"ECB reference rate {rate.rate} {rate.currency} per EUR of {rate.as_of}"
+    if rate.as_of != value.as_of:
+        used += f", carried forward to {value.as_of} (G4)"
+    used += f" ({rate.source_url})"
+    if rate.status is not VerificationStatus.VERIFIED:
+        return Check(
+            3, name, Verdict.OPEN,
+            f"{size}; the {used} is {rate.status}; counts only after reconciliation "
+            "with the ECB publication",
+        )
+    required = Context(traps=[Inexact]).multiply(threshold, rate.rate)
+    verdict = Verdict.FULFILLED if value.value >= required else Verdict.VIOLATED
+    return Check(
+        3, name, verdict,
+        f"{size}, at the {used} required ≥ {threshold} EUR = {required} {value.unit}",
     )
 
 
