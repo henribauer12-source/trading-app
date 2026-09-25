@@ -4,6 +4,10 @@
 **Datum:** 2026-09-25
 **Frage:** Welche kostenpflichtigen, gehosteten Quellen ersparen die eigene Aufzeichnung?
 
+> **Nachtrag 2026-09-25: Henris EODHD-Token ist verifiziert — Plan „Free".**
+> Gemessen, nicht vermutet: Intraday-Endpunkt antwortet **HTTP 403 „Only EOD data allowed for free users"**. EOD-Historie ist auf **1 Jahr** beschränkt (die API hängt an jeden Bar eine `warning`-Zeile). 20 Calls/Tag, 500 Extra.
+> Heißt: **Für die Intraday-Uhr taugt der Token nicht.** Was er kann, steht in Abschnitt „Was der vorhandene Token wirklich leistet" am Ende.
+
 ## Warum die Frage überhaupt zählt
 
 Der Plan v8 stellt den Intraday-Recorder in Phase 1, weil kostenlose Quellen nur ~8 Tage Minutenbars liefern und jeder Tag ohne Aufzeichnung ein Tag ist, den das Intraday-Modul später startet. Diese Uhr läuft nur, solange es keine gekaufte Historie gibt. **Kaufst du Historie, verschwindet der Zeitdruck** — die 12-Monats-Sperre aus dem Plan ist dann sofort erfüllt, weil die Historie schon existiert.
@@ -96,6 +100,43 @@ Der Grund sind nicht die Minutenbars, die bekommst du überall. Es sind die **7.
 2. **Die 12-Monats-Sperre ist sofort erfüllt** — die Historie existiert ja. Die restlichen Gates aus Spec §S1–S10 gelten unverändert: Kostenmodell, DSR ≥ 0,95, PBO ≤ 0,05, Paper Trading vor allem anderen.
 3. **Neue Abhängigkeit in der Datenschicht:** ein Loader für das gekaufte Format, mit Prüfung gegen eine zweite Quelle auf Tagesebene (Prüfebene 2). Gekaufte Daten sind nicht automatisch richtige Daten.
 4. **`apscheduler` bleibt trotzdem in Charge 1** — für Ingest-Jobs gebraucht, nicht nur für den Recorder.
+
+## Was der vorhandene Token wirklich leistet
+
+Am 2026-09-25 gegen die Live-API gemessen, Token liegt in `~/claude-local/trading-app/.env` (Rechte 600, außerhalb Git und iCloud).
+
+**Konto:** Henri Bauer, `subscriptionType: free`, 20 Calls/Tag + 500 Extra-Limit.
+
+| Endpunkt | Ergebnis | Belegt durch |
+|---|---|---|
+| `/api/intraday` 1m | **HTTP 403** | „Only EOD data allowed for free users" |
+| `/api/intraday` 1h | **HTTP 403** | dieselbe Meldung |
+| `/api/eod` US (AAPL, MSFT) | HTTP 200 | echte Bars mit `adjusted_close` |
+| `/api/eod` Xetra (SAP.XETRA) | HTTP 200 | echte Bars — **europäische Titel gehen** |
+| `/api/eod` älter als 1 Jahr | stillschweigend gekürzt | Abfrage für Jan 2015 lieferte 2025-09-25, mit `"warning": "Data is limited by one year as you have free subscription"` |
+| `/api/splits` | HTTP 200 | AAPL 7:1 (2014), 4:1 (2020) |
+| `/api/div` | HTTP 200 | mit `declarationDate` **und** `recordDate` |
+
+### Die zwei Befunde, die zählen
+
+**1. Intraday ist gesperrt.** Kein Minutenbar, kein Stundenbar, keine Umgehung. Die Uhr aus Plan v8 bleibt also stehen, und der Recorder bleibt vorerst in Phase 1.
+
+**2. Die 1-Jahres-Grenze ist eine Leckage-Falle.** Die API wirft keinen Fehler, wenn du ältere Daten anforderst — sie gibt still einen kürzeren Zeitraum zurück und versteckt den Hinweis in einem `warning`-Feld pro Bar. Ein naiver Loader merkt davon nichts und hält einen 10-Jahres-Backtest für gültig, der in Wahrheit auf 12 Monaten steht. **Der Loader muss dieses Feld prüfen und hart abbrechen** — das gehört in Prüfebene 1, nicht in einen Kommentar.
+
+### Wofür er trotzdem gut ist
+
+- **`declarationDate` bei Dividenden.** Das ist der Tag, an dem eine Dividende öffentlich wurde — genau der Zeitstempel, den `PointInTimeView` braucht, um Lookahead zu vermeiden. Yahoo liefert das nicht.
+- **Splits als saubere Zeitreihe** — Grundlage für eigene Anpassungsrechnung.
+- **Xetra funktioniert**, im Gegensatz zu den meisten US-lastigen Gratisquellen.
+- **Referenzquelle für Prüfebene 2:** Tages-Bars gegen `yfinance` gegenprüfen. Zwei unabhängige Quellen, die sich widersprechen, sind ein Fund; eine Quelle allein ist eine Annahme.
+
+20 Calls/Tag reichen dafür — solange der Ingest cacht und nicht bei jedem Lauf neu zieht.
+
+### Wenn Intraday gebraucht wird
+
+Der Token lässt sich auf **„EOD+Intraday All World Extended", 29,99 €/Monat** hochstufen — mit dem 50 % Studentenrabatt ~15 €/Monat. Dann greift alles aus Option 2 oben, inklusive der Split-Falle: EODHD passt Intraday-Bars **nicht** rückwirkend an.
+
+**Solange nicht hochgestuft wird, bleibt der Recorder in Phase 1.** Die Uhr läuft.
 
 ## Offene Entscheidung
 
