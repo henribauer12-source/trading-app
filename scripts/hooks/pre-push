@@ -1,0 +1,34 @@
+#!/bin/sh
+# Refuse to push if a secret-shaped string sits in a tracked file.
+#
+# The repo is public. A credential that reaches the remote is burned the
+# moment it lands — GitHub keeps deleted commits reachable by SHA, and the
+# push event itself is scraped. So the gate sits *before* the network call,
+# not in CI afterwards.
+#
+# Install (once per clone):
+#     git config core.hooksPath scripts/hooks
+#
+# The hook lives inside the repo rather than in .git/hooks on purpose: this
+# project keeps its git directory outside the working tree (ADR-0003), so a
+# hook written into .git/hooks would be invisible to review and lost on a
+# fresh clone.
+#
+# Bypass, when you genuinely must:  git push --no-verify
+
+set -e
+
+root=$(git rev-parse --show-toplevel)
+
+if [ ! -f "$root/scripts/check_secrets.py" ]; then
+    echo "pre-push: scripts/check_secrets.py is missing — refusing to push blind." >&2
+    exit 1
+fi
+
+python3 "$root/scripts/check_secrets.py" --root "$root" || {
+    echo >&2
+    echo "pre-push: push aborted — the lines above look like credentials." >&2
+    echo "pre-push: the scanner prints file and line only, never the value." >&2
+    echo "pre-push: a false positive? then 'git push --no-verify'." >&2
+    exit 1
+}
