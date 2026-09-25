@@ -1,0 +1,58 @@
+# --- Secrets: never commit ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+secrets/
+credentials*.json
+ib_gateway.conf
+
+# --- Heavy / frequently written: lives in ~/claude-local/trading-app/ ---
+# (kept here as a guard in case anything is ever created in-tree by mistake)
+.venv/
+venv/
+*.duckdb
+*.duckdb.wal
+*.sqlite
+*.sqlite3
+data/
+cache/
+outputs/
+backtests/
+intraday_recordings/
+*.parquet
+*.feather
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# --- macOS / iCloud ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+*.icloud
+# iCloud sync conflict copies
+*conflicted copy*
+* 2.md
+* 2.py
+* 2.yaml
+
+# --- Editors ---
+.idea/
+.vscode/
+*.swp
