@@ -275,6 +275,9 @@ def _check_fund_size(view: InstrumentView, isin: str, block: BuildingBlock) -> C
         rate = view.rate_for(value.unit, value.as_of)
     except LookupError as error:
         # A5.1: without a rate known at the cut-off date there is no EUR value.
+        # A gap in the rates (FxRateGapError, v1.6) is a LookupError too: open,
+        # never a pass or a fail. The message tells the two cases apart — "no
+        # rate on or before" versus "gap of N TARGET business days before".
         return Check(3, name, Verdict.OPEN, f"{size} cannot be converted into EUR: {error}")
     used = f"ECB reference rate {rate.rate} {rate.currency} per EUR of {rate.as_of}"
     if rate.as_of != value.as_of:

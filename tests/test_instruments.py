@@ -12,6 +12,7 @@ The most important block is ``TestLeakage``, following the pattern of
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 import json
 from decimal import Decimal
 
@@ -21,10 +22,12 @@ from hypothesis import strategies as st
 
 from trading_app.instruments import (
     FIELDS,
+    SOURCE_PRECEDENCE,
     Distribution,
     FieldValue,
     FieldValueValidationError,
     FxRate,
+    FxRateGapError,
     InstrumentStore,
     Replication,
     SourceType,
@@ -441,6 +444,71 @@ def factsheet_value(field: str = "ter", value: object = Decimal("0.2222"), **kwa
                       source_url=URL_FACTSHEET, **kwargs)
 
 
+def ranked_value(source_type: SourceType, value: Decimal, as_of: dt.date) -> FieldValue:
+    """A TER from any document class, retrieved three days after its as-of date.
+
+    A second-hand value can only be UNVERIFIED; every other one is VERIFIED.
+    """
+    status = (VerificationStatus.UNVERIFIED if source_type is SourceType.SECONDARY
+              else VerificationStatus.VERIFIED)
+    return make_value(value=value, source_type=source_type, status=status, as_of=as_of,
+                      retrieved_at=ts(as_of.year, as_of.month, as_of.day) + dt.timedelta(days=3))
+
+
+class TestDocumentClassPrecedence:
+    """The full order over document classes (A5.1, v1.6)."""
+
+    def test_order_as_specified(self) -> None:
+        assert SOURCE_PRECEDENCE == (
+            SourceType.STATUTE,
+            SourceType.KID,
+            SourceType.ANNUAL_REPORT,
+            SourceType.PROSPECTUS,
+            SourceType.FACTSHEET,
+            SourceType.ISSUER,
+            SourceType.EXCHANGE,
+            SourceType.SECONDARY,
+        )
+
+    def test_every_source_type_is_ranked_exactly_once(self) -> None:
+        """A new source type must be placed deliberately, not silently sort last."""
+        assert sorted(SOURCE_PRECEDENCE) == sorted(SourceType)
+
+    @pytest.mark.parametrize(
+        ("higher", "lower"), list(itertools.combinations(SOURCE_PRECEDENCE, 2))
+    )
+    def test_higher_class_beats_newer_lower_class(self, store, higher, lower) -> None:
+        """Every pair of distinct classes is strictly ordered — a total order.
+
+        The lower class has the later as-of date, the later retrieval and the
+        later write, so every tiebreaker favours it: only the class can make
+        the higher one win. Covers statute over KID and annual report over
+        prospectus and factsheet among the 28 pairs.
+        """
+        store.append([
+            ranked_value(higher, Decimal("0.1111"), dt.date(2025, 2, 15)),
+            ranked_value(lower, Decimal("0.2222"), dt.date(2026, 8, 31)),
+        ])
+        winner = store.view(ts(2026, 9, 10)).field(ISIN_A, "ter")
+        assert (winner.value, winner.source_type) == (Decimal("0.1111"), higher)
+
+    def test_same_class_falls_back_to_the_latest_as_of(self, store) -> None:
+        store.append([
+            ranked_value(SourceType.ANNUAL_REPORT, Decimal("0.1111"), dt.date(2026, 8, 31)),
+            ranked_value(SourceType.ANNUAL_REPORT, Decimal("0.2222"), dt.date(2025, 12, 31)),
+        ])
+        assert store.view(ts(2026, 9, 10)).field(ISIN_A, "ter").value == Decimal("0.1111")
+
+    def test_verification_status_does_not_rank(self, store) -> None:
+        """An UNVERIFIED KID still beats a VERIFIED factsheet: the check stays open."""
+        store.append([
+            make_value(value=Decimal("0.1111"), status=VerificationStatus.UNVERIFIED),
+            factsheet_value(value=Decimal("0.2222")),
+        ])
+        ter = store.view(ts(2026, 9, 10)).field(ISIN_A, "ter")
+        assert (ter.value, ter.status) == (Decimal("0.1111"), VerificationStatus.UNVERIFIED)
+
+
 class TestKidPrecedence:
     def test_older_kid_beats_newer_factsheet(self, store) -> None:
         """The KID value applies, whatever the as-of dates of other documents."""
@@ -458,16 +526,17 @@ class TestKidPrecedence:
         assert list(store.history(ISIN_A, "ter")["value"]) == ["0.1111", "0.2222"]
         assert list(store.history(ISIN_A, "ter")["source_type"]) == ["kid", "factsheet"]
 
-    @pytest.mark.parametrize("other", [s for s in SourceType if s is not SourceType.KID])
+    @pytest.mark.parametrize(
+        "other",
+        [SourceType.FACTSHEET, SourceType.PROSPECTUS, SourceType.ISSUER, SourceType.EXCHANGE,
+         SourceType.ANNUAL_REPORT, SourceType.SECONDARY],
+    )
     def test_kid_beats_every_other_document(self, store, other) -> None:
-        """Not only the factsheet — that keeps the ranking a total order (A5.1, A15)."""
-        status = (VerificationStatus.UNVERIFIED if other is SourceType.SECONDARY
-                  else VerificationStatus.VERIFIED)
+        """Every document but the statute (A5.1, v1.6; ``TestDocumentClassPrecedence``)."""
         store.append([
             make_value(value=Decimal("0.1111"), as_of=dt.date(2025, 2, 15),
                        retrieved_at=ts(2025, 3, 1)),
-            make_value(value=Decimal("0.2222"), source_type=other, status=status,
-                       as_of=dt.date(2026, 8, 31), retrieved_at=ts(2026, 9, 3)),
+            ranked_value(other, Decimal("0.2222"), dt.date(2026, 8, 31)),
         ])
         assert store.view(ts(2026, 9, 10)).field(ISIN_A, "ter").value == Decimal("0.1111")
 
@@ -660,6 +729,71 @@ class TestFxRate:
                         DATE '2026-08-28', TIMESTAMPTZ '2026-08-27 12:00:00+00', now())
                 """
             )
+
+
+class TestFxRateGap:
+    """Carry forward over TARGET closing days only; a business day without a rate is a gap (v1.6)."""
+
+    @pytest.mark.parametrize(
+        ("rate_day", "wanted"),
+        [
+            (FRIDAY, FRIDAY + dt.timedelta(days=1)),  # Saturday
+            (FRIDAY, SUNDAY),  # over Saturday, also closed
+            (dt.date(2021, 12, 24), dt.date(2021, 12, 26)),  # Friday → Sunday
+            (dt.date(2025, 12, 24), dt.date(2025, 12, 26)),  # Wednesday → 25 and 26 on weekdays
+            (dt.date(2026, 4, 2), dt.date(2026, 4, 6)),  # Thursday → Good Friday … Easter Monday
+            (dt.date(2026, 4, 30), dt.date(2026, 5, 1)),  # Labour Day, a Friday
+            (dt.date(2025, 12, 31), dt.date(2026, 1, 1)),  # New Year's Day
+        ],
+    )
+    def test_closing_days_carry_forward(self, store, rate_day, wanted) -> None:
+        store.append([make_rate(as_of=rate_day)])
+        assert store.view(ts(2026, 9, 25)).rate_for("USD", wanted).as_of == rate_day
+
+    @pytest.mark.parametrize(
+        ("rate_day", "wanted", "missing"),
+        [
+            (dt.date(2026, 8, 27), FRIDAY + dt.timedelta(days=1), 1),  # Friday has no rate
+            (dt.date(2026, 4, 2), dt.date(2026, 4, 7), 1),  # the Tuesday after Easter is open
+            (MONDAY, dt.date(2026, 9, 15), 11),  # 1–4, 7–11, 14–15 September
+        ],
+    )
+    def test_business_day_without_rate_is_a_gap(self, store, rate_day, wanted, missing) -> None:
+        store.append([make_rate(as_of=rate_day)])
+        with pytest.raises(FxRateGapError) as raised:
+            store.view(ts(2026, 9, 25)).rate_for("USD", wanted)
+        message = str(raised.value)
+        for part in (f"for {wanted}", f"is of {rate_day}",
+                     f"gap of {missing} TARGET business day", f"before {wanted}"):
+            assert part in message
+
+    def test_gap_is_a_lookup_error(self) -> None:
+        """Existing ``except LookupError`` callers keep treating it as "no rate"."""
+        assert issubclass(FxRateGapError, LookupError)
+
+    def test_before_the_earliest_rate_is_no_gap(self, store) -> None:
+        """Nothing to carry forward is still the plain LookupError, unchanged."""
+        store.append([make_rate(as_of=FRIDAY)])
+        with pytest.raises(LookupError, match="nothing to carry forward") as raised:
+            store.view(ts(2026, 9, 25)).rate_for("USD", FRIDAY - dt.timedelta(days=1))
+        assert type(raised.value) is LookupError
+
+    def test_rate_on_the_day_is_returned_whatever_came_before(self, store) -> None:
+        """A hole before the rate's own date is not this date's problem."""
+        store.append([make_rate(Decimal("1.0500"), dt.date(2026, 8, 3)),
+                      make_rate(Decimal("1.0843"), MONDAY)])
+        assert store.view(ts(2026, 9, 25)).rate_for("USD", MONDAY).rate == Decimal("1.0843")
+
+    def test_gap_check_applies_to_the_newest_rate_known_at_the_cutoff(self, store) -> None:
+        """Friday's rate retrieved after the cut-off is invisible — Thursday's is then checked."""
+        store.append([
+            make_rate(Decimal("1.0800"), dt.date(2026, 8, 27)),
+            make_rate(Decimal("1.0843"), FRIDAY, retrieved_at=ts(2026, 9, 10)),
+        ])
+        saturday = FRIDAY + dt.timedelta(days=1)
+        with pytest.raises(FxRateGapError, match="is of 2026-08-27"):
+            store.view(ts(2026, 9, 10) - dt.timedelta(seconds=1)).rate_for("USD", saturday)
+        assert store.view(ts(2026, 9, 10)).rate_for("USD", saturday).as_of == FRIDAY
 
 
 # ---------------------------------------------------------------------------

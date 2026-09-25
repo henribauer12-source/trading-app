@@ -305,6 +305,21 @@ class TestFilter3Currency:
         assert "no USD reference rate on or before 2026-08-28" in reason_of(r, 3)
         assert not r.eligible
 
+    def test_gap_in_the_rates_is_open_and_says_so(self) -> None:
+        """Monday's rate for a Thursday fund size: 1–3 September are business days (v1.6).
+
+        Carrying Monday forward would pass the fund; the gap leaves the check
+        open, and the reason names the gap rather than "no rates at all".
+        """
+        r = evaluate(BuildingBlock.K1, k1_with(
+            usd_size("900000000", dt.date(2026, 9, 3)), usd_rate("1.0843", MONDAY),
+        ))
+        assert verdict_of(r, 3) is Verdict.OPEN
+        reason = reason_of(r, 3)
+        assert "gap of 3 TARGET business days before 2026-09-03" in reason
+        assert "no USD reference rate on or before" not in reason
+        assert not r.eligible
+
     def test_rate_retrieved_after_the_cutoff_does_not_count(self) -> None:
         """A5.1: a converted fund size exists only if the rate, too, was retrieved by then."""
         late = dt.datetime(2026, 10, 1, tzinfo=UTC)

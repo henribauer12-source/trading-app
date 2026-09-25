@@ -40,20 +40,25 @@ Time axes (quality standards 3.2; investment spec A5.1, v1.3):
 The point-in-time key is ``retrieved_at``, not ``as_of``. The actual
 publication lies somewhere in between and is rarely stated in the document;
 the retrieval is the earliest moment at which the app knew the value for
-certain. If several values are known for a field, a value from a KID applies
-before a value from any other document, whatever the as-of dates (A5.1,
-v1.4). Among the rest, the one with the latest ``as_of`` applies; for equal
-``as_of``, the one retrieved last. An older document that is recorded later
-therefore does not displace a newer one of the same rank. Precedence ranks
-only what is known at the cut-off date: a KID retrieved afterwards does not
-exist for the view. When the KID and the factsheet disagree, both rows stay;
-the losing value remains visible in ``history``.
+certain. If several values are known for a field, the class of the document
+decides first, whatever the as-of dates (``SOURCE_PRECEDENCE``: statute, KID,
+annual report, …; A5.1, v1.6). Within one class, the one with the latest
+``as_of`` applies; for equal ``as_of``, the one retrieved last. An older
+document that is recorded later therefore does not displace a newer one of
+the same class. Precedence ranks only what is known at the cut-off date: a
+KID retrieved afterwards does not exist for the view. When the KID and the
+factsheet disagree, both rows stay; the losing value remains visible in
+``history``. The verification status does not rank: an UNVERIFIED winner
+leaves a hard filter open, the conservative outcome.
 
 Fund size is stored as published, in the currency of the document (A5.1,
 v1.4); it must name that currency. Converting into EUR is a matter for the
 reader, at the ECB reference rate of the value's own as-of date
 (``InstrumentView.rate_for``). The rates live in the same append-only store,
-with the same provenance and the same point-in-time key, as ``FxRate``.
+with the same provenance and the same point-in-time key, as ``FxRate``. A
+rate is carried forward over TARGET closing days only (``target_calendar``);
+a missing rate on a TARGET business day is a gap and raises
+``FxRateGapError``.
 
 Naming (convention in ``bitemporal``): ``as_of`` is always the document date;
 the query horizon is ``InstrumentView.cut_off``, compared with ``retrieved_at``.
@@ -114,15 +119,18 @@ import duckdb
 import pandas as pd
 
 from trading_app.bitemporal import BarValidationError, _require_aware
+from trading_app.target_calendar import is_target_closing_day
 
 __all__ = [
     "CURRENCIES",
     "FIELDS",
+    "SOURCE_PRECEDENCE",
     "Distribution",
     "FieldType",
     "FieldValue",
     "FieldValueValidationError",
     "FxRate",
+    "FxRateGapError",
     "InstrumentStore",
     "InstrumentView",
     "Replication",
@@ -136,6 +144,15 @@ class FieldValueValidationError(ValueError):
     """A master-data value failed input validation."""
 
 
+class FxRateGapError(LookupError):
+    """A TARGET business day between a rate and the date it is wanted for has no rate.
+
+    A data gap, not a holiday: the rates are to be loaded, not carried
+    forward. A ``LookupError``, so that a caller who treats a missing rate as
+    "no EUR value" treats a gap the same way.
+    """
+
+
 class SourceType(StrEnum):
     """Kind of document a value comes from."""
 
@@ -147,6 +164,24 @@ class SourceType(StrEnum):
     EXCHANGE = "exchange"  # e.g. the Xetra operator: XLM, tradability
     STATUTE = "statute"
     SECONDARY = "secondary"  # second hand, e.g. a comparison portal
+
+
+# Document classes, highest precedence first (A5.1, v1.6). Every SourceType
+# appears exactly once, so the ranking stays a total order; a test fails if
+# a new source type is not placed here.
+SOURCE_PRECEDENCE: tuple[SourceType, ...] = (
+    # The law itself; no document describing it may override it
+    # (statutory values such as the Teilfreistellung rates).
+    SourceType.STATUTE,
+    # PRIIPs-mandated, prescribed calculation method, issuer liability.
+    SourceType.KID,
+    SourceType.ANNUAL_REPORT,  # audited, realised figures
+    SourceType.PROSPECTUS,  # legally binding, less current on costs
+    SourceType.FACTSHEET,  # marketing material
+    SourceType.ISSUER,
+    SourceType.EXCHANGE,
+    SourceType.SECONDARY,  # never VERIFIED anyway
+)
 
 
 class VerificationStatus(StrEnum):
@@ -581,6 +616,15 @@ _VIEW_COLUMNS = (
     "unit",
 )
 
+# SOURCE_PRECEDENCE as an SQL sort key, 0 = highest; built from the enum, so
+# that no source-type string is written into the SQL by hand. An unknown type
+# (only possible via raw SQL) sorts first, so that reading it back through
+# FieldValue fails loudly instead of the row hiding at the bottom.
+_SOURCE_RANK = "CASE source_type {} ELSE -1 END".format(
+    " ".join(f"WHEN '{source_type.value}' THEN {rank}"
+             for rank, source_type in enumerate(SOURCE_PRECEDENCE))
+)
+
 
 class InstrumentView:
     """Master data as it was known at time ``cut_off``.
@@ -631,15 +675,20 @@ class InstrumentView:
     def rate_for(self, currency: str, as_of: dt.date) -> FxRate:
         """The ECB rate for converting a value of date ``as_of`` into EUR (A5.1).
 
-        The rate of that very date. If none is known for it (weekend, TARGET
-        holiday), the last one before it is carried forward, as in strategy
-        catalogue G4 (decided in v1.5) — never a later one. Only rates
-        retrieved by the cut-off date count: a converted value exists only if
-        the value and its rate were both known.
+        The rate of that very date. If none is known for it, the last one
+        before it is carried forward, as in strategy catalogue G4 (decided in
+        v1.5) — never a later one, and only if every day in between is a
+        TARGET closing day (v1.6). A TARGET business day without a rate is a
+        gap in the loaded data, not a holiday: carrying forward over it would
+        silently use a stale rate. Only rates retrieved by the cut-off date
+        count: a converted value exists only if the value and its rate were
+        both known, and the gap check applies to the newest rate known then.
 
         Raises:
             LookupError: No rate on or before ``as_of`` known at the cut-off
                 date. Nothing is extrapolated backwards.
+            FxRateGapError: A rate is known, but a TARGET business day after
+                it, up to and including ``as_of``, has none.
         """
         as_of = _date(as_of)
         row = self._conn.execute(
@@ -658,25 +707,35 @@ class InstrumentView:
                 f"cut-off date {self._cut_off.isoformat()}; before the first known rate "
                 "there is nothing to carry forward"
             )
-        return FxRate(*row)
+        rate = FxRate(*row)
+        missing = sum(
+            not is_target_closing_day(rate.as_of + dt.timedelta(days=n))
+            for n in range(1, (as_of - rate.as_of).days + 1)
+        )
+        if missing:
+            days = f"{missing} TARGET business day{'s' if missing > 1 else ''}"
+            raise FxRateGapError(
+                f"no {currency} reference rate for {as_of}: the newest one known at the "
+                f"cut-off date {self._cut_off.isoformat()} is of {rate.as_of}, with no rate "
+                f"on {days} after it (gap of {days} before {as_of}). A rate is carried "
+                "forward over TARGET closing days only; load the missing rates"
+            )
+        return rate
 
     def _current(self, isin: str, field: str) -> list[FieldValue]:
         """Per period the value in force (A5.1).
 
-        A KID first, whatever the as-of dates; then the latest as-of date,
-        the latest retrieval, the latest write — a total order. Only among
-        rows retrieved by the cut-off date.
+        The document class first (``SOURCE_PRECEDENCE``), whatever the as-of
+        dates; then the latest as-of date, the latest retrieval, the latest
+        write — a total order. Only among rows retrieved by the cut-off date.
         """
         columns = ", ".join(_VIEW_COLUMNS)
-        # The KID taken from the enum, so that changing its value cannot
-        # silently switch the precedence off.
         sql = f"""
             SELECT {columns}
             FROM (
                 SELECT *, ROW_NUMBER() OVER (
                     PARTITION BY period
-                    ORDER BY (source_type = '{SourceType.KID.value}') DESC,
-                             as_of DESC, retrieved_at DESC, row_id DESC
+                    ORDER BY {_SOURCE_RANK}, as_of DESC, retrieved_at DESC, row_id DESC
                 ) AS _rank
                 FROM instrument_fields
                 WHERE isin = ? AND field = ? AND retrieved_at <= ?
